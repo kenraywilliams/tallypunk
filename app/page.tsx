@@ -41,7 +41,7 @@ export default function Home() {
           <a className="btn btn-pri btn-block btn-lg" href="#try">
             Try it now — no sign-up
           </a>
-          <p className="cmicro">Play with a sample company · no email</p>
+          <p className="cmicro">Play with a sample company · no email required</p>
           <div className="orline">or</div>
           <a className="btn btn-ghost btn-block" href="#signup">
             Create a free account
