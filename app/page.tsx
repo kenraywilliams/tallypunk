@@ -6,7 +6,7 @@ export default function Home() {
     <div className="lp">
       <nav className="nav">
         <div className="brand">
-          <Logo size={26} />
+          <Logo size={34.6} />
           TallyPunk
         </div>
         <div className="navlinks">
@@ -37,31 +37,16 @@ export default function Home() {
         </div>
 
         <div className="card">
-          <h3>Create your free account</h3>
-          <p className="cs">Free up to 10 stakeholders · no card required.</p>
-          <button className="gbtn" type="button">
-            <span className="gic">G</span> Continue with Google
-          </button>
+          <h3>Get started</h3>
+          <a className="btn btn-pri btn-block btn-lg" href="#try">
+            Try it now — no sign-up
+          </a>
+          <p className="cmicro">Play with a sample company · no email</p>
           <div className="orline">or</div>
-          <label className="lab" htmlFor="email">
-            Work email
-          </label>
-          <input
-            id="email"
-            className="inp"
-            type="email"
-            placeholder="you@company.com"
-          />
-          <button
-            className="btn btn-pri btn-block"
-            type="button"
-            style={{ marginTop: 16 }}
-          >
-            Create free account
-          </button>
-          <p className="fine">
-            By continuing you agree to the Terms and Privacy Policy.
-          </p>
+          <a className="btn btn-ghost btn-block" href="#signup">
+            Create a free account
+          </a>
+          <p className="cmicro">Free up to 10 stakeholders · no card required</p>
         </div>
       </section>
 

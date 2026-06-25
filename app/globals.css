@@ -14,8 +14,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 /* nav */
 .lp{background:var(--bg);color:var(--ink);min-height:100vh}
 .nav{display:flex;align-items:center;justify-content:space-between;padding:20px 34px;max-width:1120px;margin:0 auto}
-.brand{display:flex;align-items:center;gap:9px;font-family:var(--fh);font-weight:600;font-size:21px;letter-spacing:-.01em}
-.brand .mark{color:var(--accent)}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--fh);font-weight:600;font-size:26.25px;letter-spacing:-.01em}
+.brand .mark{color:var(--ink)}
 .navlinks{display:flex;gap:24px;font-size:14px;font-weight:500}
 .navlinks a{color:var(--muted);text-decoration:none;cursor:pointer}
 .navlinks a:hover{color:var(--ink)}
@@ -25,6 +25,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .btn-pri{background:var(--accent);color:var(--ai)}
 .btn-sm{padding:9px 15px;font-size:13.5px}
 .btn-block{width:100%}
+.btn-lg{padding:14px 18px;font-size:15px}
+.btn-ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+.cmicro{font-size:12.5px;color:var(--muted);text-align:center;margin:8px 0 0}
 
 /* hero */
 .hero{display:grid;grid-template-columns:1.12fr .88fr;gap:48px;align-items:start;max-width:1040px;margin:0 auto;padding:30px 34px}
@@ -52,8 +56,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 /* rotating sample preview */
 .preview{margin-top:6px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
 .pv-top{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid var(--line);background:linear-gradient(var(--accent-soft),var(--bg2))}
-.pv-top .pm{color:var(--accent)}
-.pv-title{font-family:var(--fh);font-weight:600;font-size:13.5px}
+.pv-top .pm{color:var(--ink)}
+.pv-title{font-family:var(--fh);font-weight:600;font-size:16.875px}
 .pv-dots{margin-left:auto;display:flex;gap:5px}
 .pv-dots i{width:6px;height:6px;border-radius:50%;background:var(--line);display:block;transition:.3s}
 .pv-dots i.on{background:var(--accent);transform:scale(1.25)}

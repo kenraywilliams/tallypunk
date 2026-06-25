@@ -23,7 +23,7 @@ export default function RotatingPreview() {
       onMouseLeave={() => (paused.current = false)}
     >
       <div className="pv-top">
-        <Logo size={18} className="pm" />
+        <Logo size={24} className="pm" />
         <span className="pv-title">{TITLES[i]}</span>
         <span className="pv-dots">
           {[0, 1, 2].map((n) => (
