@@ -1,23 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Logo from "./Logo";
 
 const TITLES = ["Company vesting", "Stakeholders", "Vesting statement"];
-
-const Mark = () => (
-  <svg
-    className="pm"
-    viewBox="0 0 28 24"
-    width="18"
-    height="15"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="3"
-    strokeLinecap="round"
-  >
-    <path d="M4 4v16M10 4v16M16 4v16M22 4v16M1.5 20.5 25.5 3.5" />
-  </svg>
-);
 
 export default function RotatingPreview() {
   const [i, setI] = useState(0);
@@ -37,7 +23,7 @@ export default function RotatingPreview() {
       onMouseLeave={() => (paused.current = false)}
     >
       <div className="pv-top">
-        <Mark />
+        <Logo size={18} className="pm" />
         <span className="pv-title">{TITLES[i]}</span>
         <span className="pv-dots">
           {[0, 1, 2].map((n) => (

@@ -1,26 +1,12 @@
 import RotatingPreview from "./RotatingPreview";
-
-const BrandMark = () => (
-  <svg
-    className="mark"
-    viewBox="0 0 28 24"
-    width="26"
-    height="22"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.6"
-    strokeLinecap="round"
-  >
-    <path d="M4 4v16M10 4v16M16 4v16M22 4v16M1.5 20.5 25.5 3.5" />
-  </svg>
-);
+import Logo from "./Logo";
 
 export default function Home() {
   return (
     <div className="lp">
       <nav className="nav">
         <div className="brand">
-          <BrandMark />
+          <Logo size={26} />
           TallyPunk
         </div>
         <div className="navlinks">
