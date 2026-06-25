@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 40 40" role="img" aria-label="TallyPunk">
+  <title>TallyPunk icon</title>
+  <g fill="none" stroke="#211d18" stroke-width="2.8" stroke-linecap="round">
+    <path d="M8.75 9v22M16.25 9v22M23.75 9v22M31.25 9v22"/>
+  </g>
+  <path fill="#211d18" d="M3.36 32.38 L19.10 19.49 L19.10 24.99 L37.30 8.38 L36.64 7.62 L20.90 20.51 L20.90 15.01 L2.70 31.62 Z"/>
+  <circle fill="#211d18" cx="3.03" cy="32" r="0.5"/>
+  <circle fill="#211d18" cx="36.97" cy="8" r="0.5"/>
+</svg>
