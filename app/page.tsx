@@ -38,7 +38,7 @@ export default function Home() {
 
         <div className="card">
           <h3>Get started</h3>
-          <a className="btn btn-pri btn-block btn-lg" href="#try">
+          <a className="btn btn-pri btn-block btn-lg" href="/dashboard">
             Try it now — no sign-up
           </a>
           <p className="cmicro">Play with a sample company · no email required</p>
