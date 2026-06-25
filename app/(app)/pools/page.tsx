@@ -1,56 +1,48 @@
 "use client";
 
 import { useState } from "react";
-import { useSandbox } from "../SandboxProvider";
-import CreatePoolDialog from "./CreatePoolDialog";
+import { useSandbox, type Pool } from "../SandboxProvider";
+import PoolDialog from "./PoolDialog";
 
 export default function PoolsPage() {
   const { pools, companies, hydrated, resetSandbox } = useSandbox();
-  const [open, setOpen] = useState(false);
+  const [dialog, setDialog] = useState<{ pool?: Pool; edit?: boolean } | null>(
+    null,
+  );
 
   const companyName = (id: string | null) =>
     id ? (companies.find((c) => c.id === id)?.name ?? "—") : "—";
 
-  if (!hydrated) {
-    return (
-      <div className="page">
-        <div className="page-head">
-          <h1 className="page-title">Pools</h1>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="page">
       <div className="page-head">
-        <h1 className="page-title">Pools</h1>
-        {pools.length > 0 && (
+        <div>
+          <h1 className="page-title">Pools</h1>
+          <p className="page-sub">Option pools you grant from</p>
+        </div>
+        {hydrated && pools.length > 0 && (
           <div className="right">
             <button className="reset" onClick={resetSandbox}>
               Reset sandbox
             </button>
-            <button className="btn btn-pri btn-sm" onClick={() => setOpen(true)}>
+            <button className="btn btn-pri btn-sm" onClick={() => setDialog({})}>
               + Create pool
             </button>
           </div>
         )}
       </div>
 
-      {pools.length === 0 ? (
+      {!hydrated ? null : pools.length === 0 ? (
         <div className="empty">
           <button
             className="plus"
             aria-label="Create pool"
-            onClick={() => setOpen(true)}
+            onClick={() => setDialog({})}
           >
             +
           </button>
           <div className="empty-title">No pools yet</div>
-          <div className="empty-sub">
-            Create your first pool to start granting options.
-          </div>
-          <button className="btn btn-pri" onClick={() => setOpen(true)}>
+          <button className="btn btn-pri" onClick={() => setDialog({})}>
             Create pool
           </button>
         </div>
@@ -62,30 +54,54 @@ export default function PoolsPage() {
               <th>Type</th>
               <th>Company</th>
               <th>Size</th>
-              <th>Created</th>
+              <th className="tcol-act" />
             </tr>
           </thead>
           <tbody>
             {pools.map((p) => (
-              <tr key={p.id}>
+              <tr key={p.id} onClick={() => setDialog({ pool: p })}>
                 <td>{p.name}</td>
-                <td>{p.type === "phantom" ? "Phantom" : "Stock options"}</td>
-                <td>{companyName(p.companyId)}</td>
+                <td>{p.type === "phantom" ? "Phantoms" : "Stock options"}</td>
+                <td>
+                  <span className="ellip" title={companyName(p.companyId)}>
+                    {companyName(p.companyId)}
+                  </span>
+                </td>
                 <td>
                   {p.quantity == null ? (
-                    <span className="pill-soft">∞ Unlimited</span>
+                    <span className="pill-soft">
+                      <span className="inf">∞</span> Unlimited
+                    </span>
                   ) : (
-                    `${p.quantity.toLocaleString()} options`
+                    p.quantity.toLocaleString()
                   )}
                 </td>
-                <td>{new Date(p.createdAt).toLocaleDateString()}</td>
+                <td className="tcol-act">
+                  <button
+                    className="rowbtn"
+                    aria-label="Edit pool"
+                    title="Edit"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDialog({ pool: p, edit: true });
+                    }}
+                  >
+                    ✎
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
 
-      {open && <CreatePoolDialog onClose={() => setOpen(false)} />}
+      {dialog && (
+        <PoolDialog
+          pool={dialog.pool}
+          startEdit={dialog.edit}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   );
 }

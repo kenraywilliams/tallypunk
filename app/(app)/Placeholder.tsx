@@ -6,9 +6,15 @@ export default function Placeholder({
   note?: string;
 }) {
   return (
-    <div className="ph">
-      <h1>{title}</h1>
-      <p>{note ?? "Skeleton page — wired up, ready to build out next."}</p>
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">{title}</h1>
+          <p className="page-sub">
+            {note ?? "Skeleton page — wired up, ready to build out next."}
+          </p>
+        </div>
+      </div>
       <div className="ph-box">“{title}” content goes here</div>
     </div>
   );

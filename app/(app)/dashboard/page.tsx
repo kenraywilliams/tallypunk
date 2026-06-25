@@ -1,9 +1,11 @@
 export default function Dashboard() {
   return (
-    <div className="dash">
-      <div className="dash-head">
-        <h1 className="dash-title">Dashboard</h1>
-        <span className="dash-pill">placeholder — designed last</span>
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Dashboard</h1>
+          <p className="page-sub">Overview — placeholder, designed last</p>
+        </div>
       </div>
 
       <div className="grid">

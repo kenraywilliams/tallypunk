@@ -8,28 +8,23 @@ export default function CompaniesPage() {
   const { companies, hydrated } = useSandbox();
   const [open, setOpen] = useState(false);
 
-  if (!hydrated) {
-    return (
-      <div className="page">
-        <div className="page-head">
-          <h1 className="page-title">Companies</h1>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="page">
       <div className="page-head">
-        <h1 className="page-title">Companies</h1>
-        {companies.length > 0 && (
-          <button className="btn btn-pri btn-sm" onClick={() => setOpen(true)}>
-            + New company
-          </button>
+        <div>
+          <h1 className="page-title">Companies</h1>
+          <p className="page-sub">Companies you manage</p>
+        </div>
+        {hydrated && companies.length > 0 && (
+          <div className="right">
+            <button className="btn btn-pri btn-sm" onClick={() => setOpen(true)}>
+              + New company
+            </button>
+          </div>
         )}
       </div>
 
-      {companies.length === 0 ? (
+      {!hydrated ? null : companies.length === 0 ? (
         <div className="empty">
           <button
             className="plus"
@@ -39,9 +34,6 @@ export default function CompaniesPage() {
             +
           </button>
           <div className="empty-title">No companies yet</div>
-          <div className="empty-sub">
-            Add a company to group its pools, stakeholders and grants.
-          </div>
           <button className="btn btn-pri" onClick={() => setOpen(true)}>
             New company
           </button>
@@ -57,7 +49,11 @@ export default function CompaniesPage() {
           <tbody>
             {companies.map((c) => (
               <tr key={c.id}>
-                <td>{c.name}</td>
+                <td>
+                  <span className="ellip" title={c.name}>
+                    {c.name}
+                  </span>
+                </td>
                 <td>{new Date(c.createdAt).toLocaleDateString()}</td>
               </tr>
             ))}
