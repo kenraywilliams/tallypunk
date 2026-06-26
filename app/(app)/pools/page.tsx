@@ -7,7 +7,7 @@ import EditIcon from "../EditIcon";
 import PoolDialog from "./PoolDialog";
 
 export default function PoolsPage() {
-  const { pools, companies, hydrated, grantedFor } = useSandbox();
+  const { pools, companies, hydrated, grantedFor, flashId } = useSandbox();
   const [dialog, setDialog] = useState<{ pool?: Pool; edit?: boolean } | null>(
     null,
   );
@@ -63,7 +63,11 @@ export default function PoolsPage() {
             {pools.map((p) => {
               const co = companyOf(p.companyId);
               return (
-                <tr key={p.id} onClick={() => setDialog({ pool: p })}>
+                <tr
+                  key={p.id}
+                  className={p.id === flashId ? "flash" : undefined}
+                  onClick={() => setDialog({ pool: p })}
+                >
                   <td className="tcol-act">
                     <button
                       className="rowbtn"

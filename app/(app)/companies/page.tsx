@@ -7,7 +7,7 @@ import EditIcon from "../EditIcon";
 import PoolDialog from "../pools/PoolDialog";
 
 export default function CompaniesPage() {
-  const { companies, hydrated, poolsForCompany } = useSandbox();
+  const { companies, hydrated, poolsForCompany, flashId } = useSandbox();
   const [dialog, setDialog] = useState<{ company?: Company; edit?: boolean } | null>(
     null,
   );
@@ -56,7 +56,11 @@ export default function CompaniesPage() {
             {companies.map((c) => {
               const linked = poolsForCompany(c.id);
               return (
-                <tr key={c.id} onClick={() => setDialog({ company: c })}>
+                <tr
+                  key={c.id}
+                  className={c.id === flashId ? "flash" : undefined}
+                  onClick={() => setDialog({ company: c })}
+                >
                   <td className="tcol-act">
                     <button
                       className="rowbtn"

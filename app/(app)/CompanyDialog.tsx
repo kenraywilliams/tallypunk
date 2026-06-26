@@ -47,6 +47,10 @@ export default function CompanyDialog({
     }
   };
 
+  const resetForm = () => {
+    setName(company?.name ?? "");
+    setError(null);
+  };
   const dirty = !company || name.trim() !== company.name;
   const title = company ? (editing ? "Edit company" : company.name) : "New company";
   const linked = company ? poolsForCompany(company.id) : [];
@@ -77,7 +81,14 @@ export default function CompanyDialog({
           <div className="modal-actions">
             <button
               className="btn btn-ghost"
-              onClick={() => (company ? setEditing(false) : onClose())}
+              onClick={() => {
+                if (company) {
+                  resetForm();
+                  setEditing(false);
+                } else {
+                  onClose();
+                }
+              }}
             >
               Cancel
             </button>

@@ -46,6 +46,7 @@ interface Sandbox {
   pools: Pool[];
   companies: Company[];
   logs: LogEntry[];
+  flashId: string | null;
   addPool: (p: Omit<Pool, "id" | "createdAt" | "createdBy">) => Pool;
   updatePool: (
     id: string,
@@ -63,7 +64,7 @@ interface Sandbox {
 
 const Ctx = createContext<Sandbox | null>(null);
 const KEY = "tallypunk-sandbox-v1";
-const ME = "You";
+const ME = "Sandbox user";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export function SandboxProvider({ children }: { children: React.ReactNode }) {
@@ -74,25 +75,34 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<string | null>(null);
   const [toastKey, setToastKey] = useState(0);
   const toastTimer = useRef<number | undefined>(undefined);
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const d = JSON.parse(raw);
+        const fixActor = (v: string | undefined) =>
+          !v || v === "You" ? ME : v;
         setPools(
           (Array.isArray(d.pools) ? d.pools : []).map((p: Pool) => ({
-            createdBy: ME,
             ...p,
+            createdBy: fixActor(p.createdBy),
           })),
         );
         setCompanies(
           (Array.isArray(d.companies) ? d.companies : []).map((c: Company) => ({
-            createdBy: ME,
             ...c,
+            createdBy: fixActor(c.createdBy),
           })),
         );
-        setLogs(Array.isArray(d.logs) ? d.logs : []);
+        setLogs(
+          (Array.isArray(d.logs) ? d.logs : []).map((l: LogEntry) => ({
+            ...l,
+            actor: fixActor(l.actor),
+          })),
+        );
       }
     } catch {
       /* ignore corrupt storage */
@@ -110,7 +120,13 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     setToast(msg);
     setToastKey((k) => k + 1);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3500);
+    toastTimer.current = window.setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const flash = useCallback((id: string) => {
+    setFlashId(id);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlashId(null), 2500);
   }, []);
 
   const pushLog = (
@@ -148,6 +164,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     };
     setPools((cur) => [...cur, pool]);
     pushLog("pool", pool.id, "CREATE", "Pool created");
+    flash(pool.id);
     return pool;
   };
 
@@ -165,6 +182,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     if (patch.quantity !== undefined && patch.quantity !== old.quantity)
       parts.push(`size ${sizeLabel(old.quantity)} → ${sizeLabel(patch.quantity)}`);
     if (parts.length) pushLog("pool", id, "UPDATE", parts.join("; "));
+    flash(id);
   };
 
   const addCompany: Sandbox["addCompany"] = (name) => {
@@ -176,6 +194,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     };
     setCompanies((cur) => [...cur, c]);
     pushLog("company", c.id, "CREATE", "Company created");
+    flash(c.id);
     return c;
   };
 
@@ -185,6 +204,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     setCompanies((cur) => cur.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     if (patch.name !== old.name)
       pushLog("company", id, "UPDATE", `name ${old.name} → ${patch.name}`);
+    flash(id);
   };
 
   const poolsForCompany = (companyId: string) =>
@@ -205,6 +225,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         pools,
         companies,
         logs,
+        flashId,
         addPool,
         updatePool,
         addCompany,

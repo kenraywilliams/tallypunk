@@ -42,6 +42,15 @@ export default function PoolDialog({
   const [logOpen, setLogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const resetForm = () => {
+    setName(pool?.name ?? "Pool 1");
+    setType(pool?.type ?? "real");
+    setCompanyId(pool?.companyId ?? "");
+    setQty(pool?.quantity != null ? String(pool.quantity) : "");
+    setInfinity(pool ? pool.quantity == null : false);
+    setError(null);
+  };
+
   const companyName = (id: string | null) =>
     id ? (companies.find((c) => c.id === id)?.name ?? "—") : "—";
   const qtyDisplay = infinity
@@ -64,6 +73,8 @@ export default function PoolDialog({
     type !== pool.type ||
     effCompany !== pool.companyId ||
     effQty !== pool.quantity;
+  const showInfinityNote =
+    !!pool && !infinity && (qty === "" || Number(qty) <= 0) && !dirty;
 
   const save = () => {
     const finalName = name.trim() || "Pool 1";
@@ -199,10 +210,23 @@ export default function PoolDialog({
             </label>
           </div>
 
+          {showInfinityNote && (
+            <p className="form-err">
+              Unticking Infinity pool requires a quantity to be entered.
+            </p>
+          )}
+
           <div className="modal-actions">
             <button
               className="btn btn-ghost"
-              onClick={() => (pool ? setEditing(false) : onClose())}
+              onClick={() => {
+                if (pool) {
+                  resetForm();
+                  setEditing(false);
+                } else {
+                  onClose();
+                }
+              }}
             >
               Cancel
             </button>
