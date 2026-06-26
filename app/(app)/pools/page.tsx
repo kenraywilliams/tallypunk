@@ -1,17 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { useSandbox, type Pool } from "../SandboxProvider";
+import { useSandbox, type Company, type Pool } from "../SandboxProvider";
+import CompanyDialog from "../CompanyDialog";
+import EditIcon from "../EditIcon";
 import PoolDialog from "./PoolDialog";
 
 export default function PoolsPage() {
-  const { pools, companies, hydrated, resetSandbox } = useSandbox();
+  const { pools, companies, hydrated, resetSandbox, grantedFor } = useSandbox();
   const [dialog, setDialog] = useState<{ pool?: Pool; edit?: boolean } | null>(
     null,
   );
+  const [companyDialog, setCompanyDialog] = useState<Company | null>(null);
 
-  const companyName = (id: string | null) =>
-    id ? (companies.find((c) => c.id === id)?.name ?? "—") : "—";
+  const companyOf = (id: string | null) =>
+    id ? (companies.find((c) => c.id === id) ?? null) : null;
 
   return (
     <div className="page">
@@ -50,47 +53,62 @@ export default function PoolsPage() {
         <table className="ptable">
           <thead>
             <tr>
+              <th className="tcol-act" />
               <th>Name</th>
               <th>Type</th>
               <th>Company</th>
               <th>Size</th>
-              <th className="tcol-act" />
+              <th>Granted</th>
             </tr>
           </thead>
           <tbody>
-            {pools.map((p) => (
-              <tr key={p.id} onClick={() => setDialog({ pool: p })}>
-                <td>{p.name}</td>
-                <td>{p.type === "phantom" ? "Phantoms" : "Stock options"}</td>
-                <td>
-                  <span className="ellip" title={companyName(p.companyId)}>
-                    {companyName(p.companyId)}
-                  </span>
-                </td>
-                <td>
-                  {p.quantity == null ? (
-                    <span className="pill-soft">
-                      <span className="inf">∞</span> Unlimited
-                    </span>
-                  ) : (
-                    p.quantity.toLocaleString()
-                  )}
-                </td>
-                <td className="tcol-act">
-                  <button
-                    className="rowbtn"
-                    aria-label="Edit pool"
-                    title="Edit"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDialog({ pool: p, edit: true });
-                    }}
-                  >
-                    ✎
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {pools.map((p) => {
+              const co = companyOf(p.companyId);
+              return (
+                <tr key={p.id} onClick={() => setDialog({ pool: p })}>
+                  <td className="tcol-act">
+                    <button
+                      className="rowbtn"
+                      aria-label="Edit pool"
+                      title="Edit"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDialog({ pool: p, edit: true });
+                      }}
+                    >
+                      <EditIcon />
+                    </button>
+                  </td>
+                  <td className="cell-name">{p.name}</td>
+                  <td>{p.type === "phantom" ? "Phantoms" : "Stock options"}</td>
+                  <td>
+                    {co ? (
+                      <button
+                        className="linkbtn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCompanyDialog(co);
+                        }}
+                      >
+                        {co.name}
+                      </button>
+                    ) : (
+                      <span className="muted-cell">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {p.quantity == null ? (
+                      <span className="pill-soft">
+                        <span className="inf">∞</span> Unlimited
+                      </span>
+                    ) : (
+                      p.quantity.toLocaleString()
+                    )}
+                  </td>
+                  <td>{grantedFor(p.id).toLocaleString()}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -100,6 +118,12 @@ export default function PoolsPage() {
           pool={dialog.pool}
           startEdit={dialog.edit}
           onClose={() => setDialog(null)}
+        />
+      )}
+      {companyDialog && (
+        <CompanyDialog
+          company={companyDialog}
+          onClose={() => setCompanyDialog(null)}
         />
       )}
     </div>

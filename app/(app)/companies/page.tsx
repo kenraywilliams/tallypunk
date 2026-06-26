@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useSandbox } from "../SandboxProvider";
+import { useSandbox, type Company, type Pool } from "../SandboxProvider";
 import CompanyDialog from "../CompanyDialog";
+import EditIcon from "../EditIcon";
+import PoolDialog from "../pools/PoolDialog";
 
 export default function CompaniesPage() {
-  const { companies, hydrated } = useSandbox();
-  const [open, setOpen] = useState(false);
+  const { companies, hydrated, poolsForCompany } = useSandbox();
+  const [dialog, setDialog] = useState<{ company?: Company; edit?: boolean } | null>(
+    null,
+  );
+  const [poolDialog, setPoolDialog] = useState<Pool | null>(null);
 
   return (
     <div className="page">
@@ -17,7 +22,7 @@ export default function CompaniesPage() {
         </div>
         {hydrated && companies.length > 0 && (
           <div className="right">
-            <button className="btn btn-pri btn-sm" onClick={() => setOpen(true)}>
+            <button className="btn btn-pri btn-sm" onClick={() => setDialog({})}>
               + New company
             </button>
           </div>
@@ -29,12 +34,12 @@ export default function CompaniesPage() {
           <button
             className="plus"
             aria-label="New company"
-            onClick={() => setOpen(true)}
+            onClick={() => setDialog({})}
           >
             +
           </button>
           <div className="empty-title">No companies yet</div>
-          <button className="btn btn-pri" onClick={() => setOpen(true)}>
+          <button className="btn btn-pri" onClick={() => setDialog({})}>
             New company
           </button>
         </div>
@@ -42,26 +47,73 @@ export default function CompaniesPage() {
         <table className="ptable">
           <thead>
             <tr>
+              <th className="tcol-act" />
               <th>Name</th>
+              <th>Pools</th>
               <th>Created</th>
             </tr>
           </thead>
           <tbody>
-            {companies.map((c) => (
-              <tr key={c.id}>
-                <td>
-                  <span className="ellip" title={c.name}>
-                    {c.name}
-                  </span>
-                </td>
-                <td>{new Date(c.createdAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
+            {companies.map((c) => {
+              const linked = poolsForCompany(c.id);
+              return (
+                <tr key={c.id} onClick={() => setDialog({ company: c })}>
+                  <td className="tcol-act">
+                    <button
+                      className="rowbtn"
+                      aria-label="Edit company"
+                      title="Edit"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDialog({ company: c, edit: true });
+                      }}
+                    >
+                      <EditIcon />
+                    </button>
+                  </td>
+                  <td className="cell-name">
+                    <span className="ellip" title={c.name}>
+                      {c.name}
+                    </span>
+                  </td>
+                  <td>
+                    {linked.length === 0 ? (
+                      <span className="muted-cell">—</span>
+                    ) : (
+                      <span className="linkwrap-l">
+                        {linked.map((p) => (
+                          <button
+                            key={p.id}
+                            className="linkbtn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPoolDialog(p);
+                            }}
+                          >
+                            {p.name}
+                          </button>
+                        ))}
+                      </span>
+                    )}
+                  </td>
+                  <td>{new Date(c.createdAt).toLocaleDateString()}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
 
-      {open && <CompanyDialog onClose={() => setOpen(false)} />}
+      {dialog && (
+        <CompanyDialog
+          company={dialog.company}
+          startEdit={dialog.edit}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {poolDialog && (
+        <PoolDialog pool={poolDialog} onClose={() => setPoolDialog(null)} />
+      )}
     </div>
   );
 }

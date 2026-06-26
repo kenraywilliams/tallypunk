@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useSandbox, type Pool, type PoolType } from "../SandboxProvider";
+import {
+  useSandbox,
+  type Company,
+  type Pool,
+  type PoolType,
+} from "../SandboxProvider";
 import CompanyDialog from "../CompanyDialog";
 import LogDialog from "../LogDialog";
 import Modal from "../Modal";
@@ -23,7 +28,8 @@ export default function PoolDialog({
   startEdit?: boolean;
   onClose: () => void;
 }) {
-  const { companies, pools, addPool, updatePool, notify } = useSandbox();
+  const { companies, pools, addPool, updatePool, grantedFor, notify } =
+    useSandbox();
   const [editing, setEditing] = useState(pool ? !!startEdit : true);
   const [name, setName] = useState(pool?.name ?? "Pool 1");
   const [type, setType] = useState<PoolType>(pool?.type ?? "real");
@@ -32,6 +38,7 @@ export default function PoolDialog({
   const [qtyFocused, setQtyFocused] = useState(false);
   const [infinity, setInfinity] = useState(pool ? pool.quantity == null : false);
   const [companyOpen, setCompanyOpen] = useState(false);
+  const [companyView, setCompanyView] = useState<Company | null>(null);
   const [logOpen, setLogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +71,7 @@ export default function PoolDialog({
         companyId: companyId || null,
         quantity,
       });
-      notify(`“${finalName}” updated`);
+      notify(`${finalName} updated`);
     } else {
       const created = addPool({
         name: finalName,
@@ -74,8 +81,8 @@ export default function PoolDialog({
       });
       notify(
         hasQty || infinity
-          ? `“${created.name}” created`
-          : `“${created.name}” created as an unlimited pool`,
+          ? `${created.name} created`
+          : `${created.name} created as an unlimited pool`,
       );
     }
     onClose();
@@ -97,6 +104,7 @@ export default function PoolDialog({
               setError(null);
             }}
           />
+          {error && <p className="form-err">{error}</p>}
 
           <label className="lab">Pool type</label>
           <div className="seg">
@@ -148,12 +156,13 @@ export default function PoolDialog({
                 inputMode="numeric"
                 placeholder="e.g. 100000"
                 value={qtyDisplay}
-                disabled={infinity}
                 onFocus={() => setQtyFocused(true)}
                 onBlur={() => setQtyFocused(false)}
-                onChange={(e) =>
-                  setQty(e.target.value.replace(/[^\d]/g, "").slice(0, QTY_MAX_DIGITS))
-                }
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^\d]/g, "").slice(0, QTY_MAX_DIGITS);
+                  setQty(v);
+                  if (infinity && v !== "") setInfinity(false);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") e.currentTarget.blur();
                 }}
@@ -173,8 +182,6 @@ export default function PoolDialog({
             </label>
           </div>
 
-          {error && <p className="form-err">{error}</p>}
-
           <div className="modal-actions">
             <button
               className="btn btn-ghost"
@@ -186,6 +193,7 @@ export default function PoolDialog({
               {pool ? "Save" : "Create pool"}
             </button>
           </div>
+          {error && <p className="form-err" style={{ textAlign: "right" }}>{error}</p>}
         </>
       ) : pool ? (
         <>
@@ -198,9 +206,20 @@ export default function PoolDialog({
           <div className="vrow">
             <span className="vlab">Company</span>
             <span className="vval">
-              <span className="ellip" title={companyName(pool.companyId)}>
-                {companyName(pool.companyId)}
-              </span>
+              {pool.companyId ? (
+                <button
+                  className="linkbtn"
+                  onClick={() =>
+                    setCompanyView(
+                      companies.find((c) => c.id === pool.companyId) ?? null,
+                    )
+                  }
+                >
+                  {companyName(pool.companyId)}
+                </button>
+              ) : (
+                "—"
+              )}
             </span>
           </div>
           <div className="vrow">
@@ -215,8 +234,12 @@ export default function PoolDialog({
               )}
             </span>
           </div>
+          <div className="vrow">
+            <span className="vlab">Granted</span>
+            <span className="vval">{grantedFor(pool.id).toLocaleString()}</span>
+          </div>
           <div className="created-foot">
-            Created {new Date(pool.createdAt).toLocaleString()}
+            Created {new Date(pool.createdAt).toLocaleString()} by {pool.createdBy}
           </div>
           <div className="modal-actions">
             <button className="btn btn-ghost btn-sm" onClick={() => setLogOpen(true)}>
@@ -234,6 +257,12 @@ export default function PoolDialog({
         <CompanyDialog
           onClose={() => setCompanyOpen(false)}
           onCreated={(c) => setCompanyId(c.id)}
+        />
+      )}
+      {companyView && (
+        <CompanyDialog
+          company={companyView}
+          onClose={() => setCompanyView(null)}
         />
       )}
       {logOpen && pool && (
