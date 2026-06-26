@@ -172,7 +172,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .app .pill-soft{font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 8px}
 /* modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(33,29,24,.45);display:grid;place-items:center;z-index:100;padding:20px}
-.modal{background:var(--bg2);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:22px;width:100%;max-width:460px;max-height:92vh;overflow:auto;font-family:var(--fb);color:var(--ink)}
+.modal{background:var(--bg2);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:22px;width:100%;max-width:460px;font-family:var(--fb);color:var(--ink)}
 .modal.modal-sm{max-width:380px}
 .modal-title{font-family:var(--fh);font-size:19px;font-weight:600;margin:0 0 6px;color:var(--ink)}
 .modal .lab{margin-top:16px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
@@ -232,3 +232,13 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .tag-delete{background:#fae7e7;color:#b23b3b}
 .logsum{font-size:11px;color:var(--ink);line-height:1.45}
 .logmeta{font-size:10px;color:var(--muted);margin-top:2px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.appheader{position:sticky;top:0;z-index:30}
+.app .sandbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 18px;background:var(--accent-soft);border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink)}
+.app .sandbar-l{display:flex;align-items:center;gap:10px;min-width:0}
+.app .sandbadge{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--accent);background:var(--bg2);border:1px solid var(--accent);border-radius:6px;padding:2px 7px;flex:none}
+.app .sandnote{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app .sandbar-r{display:flex;align-items:center;gap:14px;flex:none}
+.app .sandlink{border:0;background:transparent;color:var(--accent);font-weight:600;font-size:12.5px;cursor:pointer;text-decoration:underline;font-family:var(--fb)}
+.app .sandlink:hover{color:var(--ink)}
+@media(max-width:780px){.app .sandnote{display:none}}

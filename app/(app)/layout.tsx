@@ -1,4 +1,5 @@
 import AppNav from "./AppNav";
+import SandboxBar from "./SandboxBar";
 import { SandboxProvider } from "./SandboxProvider";
 
 export default function AppLayout({
@@ -7,7 +8,10 @@ export default function AppLayout({
   return (
     <SandboxProvider>
       <div className="app">
-        <AppNav />
+        <div className="appheader">
+          <SandboxBar />
+          <AppNav />
+        </div>
         {children}
       </div>
     </SandboxProvider>

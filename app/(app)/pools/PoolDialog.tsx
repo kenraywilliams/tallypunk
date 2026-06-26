@@ -52,6 +52,19 @@ export default function PoolDialog({
         ? ""
         : Number(qty).toLocaleString();
 
+  const effCompany = companyId || null;
+  const effQtyNum = Number(qty);
+  const effQty =
+    !infinity && qty !== "" && !Number.isNaN(effQtyNum) && effQtyNum > 0
+      ? effQtyNum
+      : null;
+  const dirty =
+    !pool ||
+    name.trim() !== pool.name ||
+    type !== pool.type ||
+    effCompany !== pool.companyId ||
+    effQty !== pool.quantity;
+
   const save = () => {
     const finalName = name.trim() || "Pool 1";
     const dup = pools.some(
@@ -91,7 +104,11 @@ export default function PoolDialog({
   const titleText = pool ? (editing ? "Edit pool" : pool.name) : "Create pool";
 
   return (
-    <Modal title={titleText} onClose={onClose}>
+    <Modal
+      title={titleText}
+      onClose={onClose}
+      dismissable={!!pool && !editing}
+    >
       {editing ? (
         <>
           <label className="lab">Pool name</label>
@@ -189,7 +206,7 @@ export default function PoolDialog({
             >
               Cancel
             </button>
-            <button className="btn btn-pri" onClick={save}>
+            <button className="btn btn-pri" onClick={save} disabled={!dirty}>
               {pool ? "Save" : "Create pool"}
             </button>
           </div>
@@ -237,6 +254,12 @@ export default function PoolDialog({
           <div className="vrow">
             <span className="vlab">Granted</span>
             <span className="vval">{grantedFor(pool.id).toLocaleString()}</span>
+          </div>
+          <div className="vrow">
+            <span className="vlab">Vested</span>
+            <span className="vval">
+              <span className="muted-cell">—</span>
+            </span>
           </div>
           <div className="created-foot">
             Created {new Date(pool.createdAt).toLocaleString()} by {pool.createdBy}

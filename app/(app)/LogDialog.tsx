@@ -16,7 +16,7 @@ export default function LogDialog({
   const items = logsFor(objectId);
 
   return (
-    <Modal title={`History — ${title}`} onClose={onClose} sm>
+    <Modal title={`History — ${title}`} onClose={onClose} sm dismissable>
       {items.length === 0 ? (
         <p className="muted-note">No changes logged yet.</p>
       ) : (

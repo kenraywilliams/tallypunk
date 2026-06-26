@@ -7,7 +7,7 @@ import EditIcon from "../EditIcon";
 import PoolDialog from "./PoolDialog";
 
 export default function PoolsPage() {
-  const { pools, companies, hydrated, resetSandbox, grantedFor } = useSandbox();
+  const { pools, companies, hydrated, grantedFor } = useSandbox();
   const [dialog, setDialog] = useState<{ pool?: Pool; edit?: boolean } | null>(
     null,
   );
@@ -25,9 +25,6 @@ export default function PoolsPage() {
         </div>
         {hydrated && pools.length > 0 && (
           <div className="right">
-            <button className="reset" onClick={resetSandbox}>
-              Reset sandbox
-            </button>
             <button className="btn btn-pri btn-sm" onClick={() => setDialog({})}>
               + Create pool
             </button>
@@ -59,6 +56,7 @@ export default function PoolsPage() {
               <th>Company</th>
               <th>Size</th>
               <th>Granted</th>
+              <th>Vested</th>
             </tr>
           </thead>
           <tbody>
@@ -106,6 +104,9 @@ export default function PoolsPage() {
                     )}
                   </td>
                   <td>{grantedFor(p.id).toLocaleString()}</td>
+                  <td>
+                    <span className="muted-cell">—</span>
+                  </td>
                 </tr>
               );
             })}

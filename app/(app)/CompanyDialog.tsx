@@ -47,11 +47,17 @@ export default function CompanyDialog({
     }
   };
 
+  const dirty = !company || name.trim() !== company.name;
   const title = company ? (editing ? "Edit company" : company.name) : "New company";
   const linked = company ? poolsForCompany(company.id) : [];
 
   return (
-    <Modal title={title} onClose={onClose} sm={!company}>
+    <Modal
+      title={title}
+      onClose={onClose}
+      sm={!company}
+      dismissable={!!company && !editing}
+    >
       {editing ? (
         <>
           <label className="lab">Company name</label>
@@ -75,7 +81,7 @@ export default function CompanyDialog({
             >
               Cancel
             </button>
-            <button className="btn btn-pri" onClick={submit}>
+            <button className="btn btn-pri" onClick={submit} disabled={!dirty}>
               {company ? "Save" : "Create"}
             </button>
           </div>

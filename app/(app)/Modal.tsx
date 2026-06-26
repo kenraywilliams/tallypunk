@@ -1,24 +1,26 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export default function Modal({
   title,
   onClose,
   children,
   sm,
+  dismissable,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   sm?: boolean;
+  dismissable?: boolean;
 }) {
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const start = useRef<{ mx: number; my: number; bx: number; by: number } | null>(
     null,
   );
 
-  // drag the dialog by its title bar
   const onDown = (e: React.MouseEvent) => {
     start.current = { mx: e.clientX, my: e.clientY, bx: pos.x, by: pos.y };
     const move = (ev: MouseEvent) => {
@@ -37,8 +39,19 @@ export default function Modal({
     window.addEventListener("mouseup", up);
   };
 
-  return (
-    <div className="modal-overlay">
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="modal-overlay"
+      onClick={
+        dismissable
+          ? (e) => {
+              if (e.target === e.currentTarget) onClose();
+            }
+          : undefined
+      }
+    >
       <div
         className={"modal" + (sm ? " modal-sm" : "")}
         style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
@@ -56,6 +69,7 @@ export default function Modal({
         </div>
         <div className="modal-body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -50,7 +50,6 @@ export default function CompaniesPage() {
               <th className="tcol-act" />
               <th>Name</th>
               <th>Pools</th>
-              <th>Created</th>
             </tr>
           </thead>
           <tbody>
@@ -96,7 +95,6 @@ export default function CompaniesPage() {
                       </span>
                     )}
                   </td>
-                  <td>{new Date(c.createdAt).toLocaleDateString()}</td>
                 </tr>
               );
             })}
