@@ -1,20 +1,83 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useSandbox, type Company, type Pool } from "../SandboxProvider";
 import CompanyDialog from "../CompanyDialog";
 import EditIcon from "../EditIcon";
 import PoolDialog from "../pools/PoolDialog";
+import { ColumnsMenu, sortRows, useListView, type ColDef } from "../listview";
+
+type CompanyCol = "name" | "pools" | "created";
+const COLS: ColDef<CompanyCol>[] = [
+  { key: "name", label: "Name" },
+  { key: "pools", label: "Pools" },
+  { key: "created", label: "Created" },
+];
+const DEFAULT: CompanyCol[] = ["name", "pools"];
 
 export default function CompaniesPage() {
   const { companies, hydrated, poolsForCompany, flashId } = useSandbox();
-  const [dialog, setDialog] = useState<{ company?: Company; edit?: boolean } | null>(
-    null,
-  );
+  const { visible, sortKey, sortDir, toggleCol, moveCol, cycleSort } =
+    useListView<CompanyCol>("tallypunk-companies-view", COLS, DEFAULT, "name");
+  const [dialog, setDialog] = useState<{
+    company?: Company;
+    edit?: boolean;
+  } | null>(null);
   const [poolDialog, setPoolDialog] = useState<Pool | null>(null);
 
+  const value = (c: Company, key: CompanyCol): string | number => {
+    switch (key) {
+      case "name":
+        return c.name.toLowerCase();
+      case "pools":
+        return poolsForCompany(c.id).length;
+      case "created":
+        return c.createdAt;
+      default:
+        return "";
+    }
+  };
+
+  const cell = (c: Company, key: CompanyCol): ReactNode => {
+    switch (key) {
+      case "name":
+        return (
+          <span className="ellip" title={c.name}>
+            {c.name}
+          </span>
+        );
+      case "pools": {
+        const linked = poolsForCompany(c.id);
+        return linked.length === 0 ? (
+          <span className="muted-cell">—</span>
+        ) : (
+          <span className="linkwrap-l">
+            {linked.map((p) => (
+              <button
+                key={p.id}
+                className="linkbtn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPoolDialog(p);
+                }}
+              >
+                {p.name}
+              </button>
+            ))}
+          </span>
+        );
+      }
+      case "created":
+        return new Date(c.createdAt).toLocaleDateString();
+      default:
+        return null;
+    }
+  };
+
+  const rows = sortRows(companies, sortKey, sortDir, value);
+
   return (
-    <div className="page">
+    <div className="listpage">
       <div className="page-head">
         <div>
           <h1 className="page-title">Companies</h1>
@@ -22,6 +85,12 @@ export default function CompaniesPage() {
         </div>
         {hydrated && companies.length > 0 && (
           <div className="right">
+            <ColumnsMenu
+              visible={visible}
+              allCols={COLS}
+              toggleCol={toggleCol}
+              moveCol={moveCol}
+            />
             <button className="btn btn-pri btn-sm" onClick={() => setDialog({})}>
               + New company
             </button>
@@ -44,18 +113,33 @@ export default function CompaniesPage() {
           </button>
         </div>
       ) : (
-        <table className="ptable">
-          <thead>
-            <tr>
-              <th className="tcol-act" />
-              <th>Name</th>
-              <th>Pools</th>
-            </tr>
-          </thead>
-          <tbody>
-            {companies.map((c) => {
-              const linked = poolsForCompany(c.id);
-              return (
+        <div className="tablewrap">
+          <table className="ptable">
+            <thead>
+              <tr>
+                <th className="tcol-act" />
+                {visible.map((key) => {
+                  const col = COLS.find((c) => c.key === key);
+                  if (!col) return null;
+                  const on = sortKey === key;
+                  return (
+                    <th key={key}>
+                      <button
+                        className={"th-sort" + (on ? " on" : "")}
+                        onClick={() => cycleSort(key)}
+                      >
+                        {col.label}
+                        <span className="th-arrow">
+                          {on ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                        </span>
+                      </button>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
                 <tr
                   key={c.id}
                   className={c.id === flashId ? "flash" : undefined}
@@ -74,36 +158,19 @@ export default function CompaniesPage() {
                       <EditIcon />
                     </button>
                   </td>
-                  <td className="cell-name">
-                    <span className="ellip" title={c.name}>
-                      {c.name}
-                    </span>
-                  </td>
-                  <td>
-                    {linked.length === 0 ? (
-                      <span className="muted-cell">—</span>
-                    ) : (
-                      <span className="linkwrap-l">
-                        {linked.map((p) => (
-                          <button
-                            key={p.id}
-                            className="linkbtn"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPoolDialog(p);
-                            }}
-                          >
-                            {p.name}
-                          </button>
-                        ))}
-                      </span>
-                    )}
-                  </td>
+                  {visible.map((key) => (
+                    <td
+                      key={key}
+                      className={key === "name" ? "cell-name" : undefined}
+                    >
+                      {cell(c, key)}
+                    </td>
+                  ))}
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {dialog && (
