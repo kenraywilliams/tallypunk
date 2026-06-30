@@ -10,8 +10,10 @@ export default function StakeholdersLayout({
 }) {
   return (
     <StakeholderViewProvider>
-      <StakeholderSubnav />
-      {children}
+      <div className="stk-shell">
+        <StakeholderSubnav />
+        <div className="stk-main">{children}</div>
+      </div>
     </StakeholderViewProvider>
   );
 }

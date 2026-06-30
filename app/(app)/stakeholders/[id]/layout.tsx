@@ -23,13 +23,13 @@ export default function StakeholderLayout({
     activeRef.current?.scrollIntoView({ block: "nearest" });
   }, [id]);
 
-  if (!hydrated) return <div className="page" />;
+  if (!hydrated) return <div className="stk-page" />;
 
   const sorted = sortStakeholders(stakeholders, companies, navField, navDir);
   const idx = sorted.findIndex((s) => s.id === id);
   if (idx === -1) {
     return (
-      <div className="page">
+      <div className="stk-page">
         <p className="muted-note">This stakeholder no longer exists.</p>
         <Link className="btn btn-ghost btn-sm" href="/stakeholders">
           ← Back to list
@@ -50,7 +50,7 @@ export default function StakeholderLayout({
     navField === f ? (navDir === "asc" ? " ▲" : " ▼") : "";
 
   return (
-    <div className="page">
+    <div className="stk-page">
       <div className="sdetail">
         <aside className="slist">
           <div className="slist-head">
@@ -78,7 +78,7 @@ export default function StakeholderLayout({
                 className={"slist-item" + (p.id === id ? " on" : "")}
                 onClick={() => router.push(`/stakeholders/${p.id}${suffix}`)}
               >
-                {fullName(p) || "—"}
+                <span className="slist-name">{fullName(p) || "—"}</span>
               </button>
             ))}
           </div>
@@ -103,7 +103,7 @@ export default function StakeholderLayout({
               </button>
             </div>
           </div>
-          {children}
+          <div className="sbody-scroll">{children}</div>
         </div>
       </div>
     </div>

@@ -78,7 +78,7 @@ export default function StakeholdersPage() {
   };
 
   return (
-    <div className="page">
+    <div className="stk-page">
       <div className="page-head">
         <div>
           <h1 className="page-title">Stakeholders</h1>
@@ -173,8 +173,9 @@ export default function StakeholdersPage() {
           </button>
         </div>
       ) : (
-        <table className="ptable">
-          <thead>
+        <div className="stk-tablewrap">
+          <table className="ptable">
+            <thead>
             <tr>
               <th className="tcol-act" />
               {visible.map((key) => {
@@ -230,7 +231,8 @@ export default function StakeholdersPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       )}
 
       {creating && (

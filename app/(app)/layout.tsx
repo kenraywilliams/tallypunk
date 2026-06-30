@@ -12,7 +12,7 @@ export default function AppLayout({
           <SandboxBar />
           <AppNav />
         </div>
-        {children}
+        <div className="appmain">{children}</div>
       </div>
     </SandboxProvider>
   );
