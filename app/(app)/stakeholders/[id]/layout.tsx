@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useSandbox } from "../../SandboxProvider";
-import { fullName, idLabel, typeLabel } from "../util";
+import { fullName, typeLabel } from "../util";
 import { sortStakeholders, useStakeholderView } from "../view";
 
 export default function StakeholderLayout({
@@ -23,13 +23,13 @@ export default function StakeholderLayout({
     activeRef.current?.scrollIntoView({ block: "nearest" });
   }, [id]);
 
-  if (!hydrated) return <div className="stk-page" />;
+  if (!hydrated) return <div className="stk-page wide" />;
 
   const sorted = sortStakeholders(stakeholders, companies, navField, navDir);
   const idx = sorted.findIndex((s) => s.id === id);
   if (idx === -1) {
     return (
-      <div className="stk-page">
+      <div className="stk-page wide">
         <p className="muted-note">This stakeholder no longer exists.</p>
         <Link className="btn btn-ghost btn-sm" href="/stakeholders">
           ← Back to list
@@ -50,17 +50,17 @@ export default function StakeholderLayout({
     navField === f ? (navDir === "asc" ? " ▲" : " ▼") : "";
 
   return (
-    <div className="stk-page">
+    <div className="stk-page wide">
       <div className="sdetail">
         <aside className="slist">
           <div className="slist-head">
-            <span className="slist-title">All stakeholders</span>
+            <span className="slist-title">Roster</span>
             <div className="slist-sort">
               <button
                 className={"slsort" + (navField === "first" ? " on" : "")}
                 onClick={() => setNavSort("first")}
               >
-                First{arrow("first")}
+                First name{arrow("first")}
               </button>
               <button
                 className={"slsort" + (navField === "last" ? " on" : "")}
@@ -87,9 +87,8 @@ export default function StakeholderLayout({
         <div className="sbody">
           <div className="sh">
             <div className="sh-id">
-              <span className="sh-num">#{idLabel(s.seq)}</span>
-              <h1 className="sh-name">{fullName(s) || "—"}</h1>
               <span className="pill-soft">{typeLabel(s.type)}</span>
+              <h1 className="sh-name">{fullName(s) || "—"}</h1>
             </div>
             <div className="sh-nav">
               <button className="snav-b" onClick={() => go(prevIdx)}>

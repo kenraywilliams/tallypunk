@@ -7,7 +7,7 @@ import CompanyDialog from "../../CompanyDialog";
 import StakeholderForm from "../StakeholderForm";
 import { idLabel, typeLabel } from "../util";
 
-export default function StakeholderDetailPage() {
+export default function StakeholderProfilePage() {
   const { id } = useParams<{ id: string }>();
   const { stakeholders, companies } = useSandbox();
   const [editing, setEditing] = useState(false);
@@ -32,53 +32,64 @@ export default function StakeholderDetailPage() {
     );
   }
 
+  const dash = <span className="muted-cell">—</span>;
+
   return (
     <div className="panel">
-      <div className="vrow">
-        <span className="vlab">ID</span>
-        <span className="vval">{idLabel(s.seq)}</span>
+      <div className="pgrid2">
+        <div className="prow">
+          <span className="plab2">First name(s)</span>
+          <span className="pval2">{s.firstName || dash}</span>
+        </div>
+        <div className="prow">
+          <span className="plab2">Last name(s)</span>
+          <span className="pval2">{s.lastName || dash}</span>
+        </div>
+        <div className="prow">
+          <span className="plab2">ID</span>
+          <span className="pval2">{idLabel(s.seq)}</span>
+        </div>
+        <div className="prow">
+          <span className="plab2">Type</span>
+          <span className="pval2">{typeLabel(s.type)}</span>
+        </div>
+        <div className="prow">
+          <span className="plab2">Company</span>
+          <span className="pval2">
+            {s.companyId ? (
+              <button
+                className="linkbtn"
+                onClick={() =>
+                  setCompanyView(
+                    companies.find((c) => c.id === s.companyId) ?? null,
+                  )
+                }
+              >
+                {companyName}
+              </button>
+            ) : (
+              dash
+            )}
+          </span>
+        </div>
+        <div className="prow">
+          <span className="plab2">Email</span>
+          <span className="pval2">
+            {s.email ? (
+              <a className="linkbtn" href={`mailto:${s.email}`}>
+                {s.email}
+              </a>
+            ) : (
+              dash
+            )}
+          </span>
+        </div>
+        <div className="prow full">
+          <span className="plab2">Notes</span>
+          <span className="pval2 pval-note">{s.notes || dash}</span>
+        </div>
       </div>
-      <div className="vrow">
-        <span className="vlab">Type</span>
-        <span className="vval">{typeLabel(s.type)}</span>
-      </div>
-      <div className="vrow">
-        <span className="vlab">Company</span>
-        <span className="vval">
-          {s.companyId ? (
-            <button
-              className="linkbtn"
-              onClick={() =>
-                setCompanyView(
-                  companies.find((c) => c.id === s.companyId) ?? null,
-                )
-              }
-            >
-              {companyName}
-            </button>
-          ) : (
-            <span className="muted-cell">—</span>
-          )}
-        </span>
-      </div>
-      <div className="vrow">
-        <span className="vlab">Email</span>
-        <span className="vval">
-          {s.email ? (
-            <a className="linkbtn" href={`mailto:${s.email}`}>
-              {s.email}
-            </a>
-          ) : (
-            <span className="muted-cell">—</span>
-          )}
-        </span>
-      </div>
-      <div className="vblock">
-        <span className="vlab">Notes</span>
-        <p className="vnote">
-          {s.notes || <span className="muted-cell">—</span>}
-        </p>
-      </div>
+
       <div className="created-foot">
         Created {new Date(s.createdAt).toLocaleString()} by {s.createdBy}
       </div>

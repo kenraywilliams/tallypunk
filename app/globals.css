@@ -3,7 +3,7 @@
 /* ---------- TallyPunk landing — Editorial Serif (paper + plum) ---------- */
 :root{
   --bg:#f7f3ec; --bg2:#fffdf8; --ink:#211d18; --muted:#7d7466; --line:#e7ddcc;
-  --accent:#8a4b6b; --ai:#fff; --accent-soft:#f1e3ec; --gold:#b3894e;
+  --accent:#8a4b6b; --ai:#fff; --accent-soft:#f1e3ec; --gold:#b3894e; --flash:#e7c2d8; --hover:#efe7da;
   --rad:6px; --shadow:0 16px 40px rgba(60,40,30,.13);
   --fh: var(--font-fraunces), Georgia, serif;
   --fb: var(--font-inter), system-ui, sans-serif;
@@ -242,8 +242,8 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .app .sandlink{border:0;background:transparent;color:var(--accent);font-weight:600;font-size:12.5px;cursor:pointer;text-decoration:underline;font-family:var(--fb)}
 .app .sandlink:hover{color:var(--ink)}
 @media(max-width:780px){.app .sandnote{display:none}}
-@keyframes rowflash{0%{background:var(--accent-soft)}100%{background:transparent}}
-.app .ptable tbody tr.flash > td{animation:rowflash 2.5s ease}
+@keyframes rowflash{0%{background:transparent}14%{background:var(--accent-soft)}68%{background:var(--accent-soft)}100%{background:transparent}}
+.app .ptable tbody tr.flash > td{animation:rowflash 4s ease}
 
 /* stakeholder dialog: name grid, notes, tabs, prev/next */
 .frow2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
@@ -269,9 +269,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .app .subtab.on{color:var(--accent);border-bottom-color:var(--accent)}
 .app .subtab.disabled{opacity:.38;cursor:not-allowed;pointer-events:none}
 .app .panel{background:var(--bg2);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px 22px 18px}
-.app .sh{flex:none;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.app .sh-id{display:flex;align-items:center;gap:12px;min-width:0}
-.app .sh-name{font-family:var(--fh);font-size:30px;font-weight:600;letter-spacing:-.01em;margin:0;color:var(--ink)}
+.app .sh{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-bottom:16px;max-width:100%}
+.app .sh-id{display:flex;align-items:center;gap:12px;min-width:0;max-width:100%}
+.app .sh-name{font-family:var(--fh);font-size:30px;font-weight:600;letter-spacing:-.01em;margin:0;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app .sh-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .app .sh-nav .snav-b{flex:none;max-width:210px}
 .skform .lab{margin-top:16px;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
@@ -303,6 +303,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .app .slist-scroll{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding:6px;gap:1px}
 .app .slist-item{display:flex;align-items:center;min-height:34px;text-align:left;border:0;background:transparent;color:var(--ink);font-family:var(--fb);font-size:13.5px;padding:7px 10px;border-radius:7px;cursor:pointer}
 .app .slist-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app .subnav .menu-panel{top:calc(100% + 4px)}
 .app .slist-item:hover{background:var(--bg)}
 .app .slist-item.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .app .sbody{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
@@ -312,5 +313,12 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .app .stk-shell{height:100%;display:flex;flex-direction:column;overflow:hidden}
 .app .stk-main{flex:1;min-height:0;display:flex;flex-direction:column}
 .app .stk-page{flex:1;min-height:0;width:100%;max-width:1180px;margin:0 auto;display:flex;flex-direction:column;padding:24px}
+.app .stk-page.wide{max-width:1320px}
+.app .pgrid2{display:grid;grid-template-columns:1fr 1fr;column-gap:48px;padding:2px}
+.app .prow{display:grid;grid-template-columns:128px 1fr;gap:14px;align-items:baseline;padding:13px 2px;border-bottom:1px solid var(--line)}
+.app .prow.full{grid-column:1 / -1;border-bottom:0}
+.app .plab2{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+.app .pval2{font-size:15px;color:var(--ink);font-weight:600;min-width:0;overflow-wrap:break-word}
+.app .pval-note{font-weight:400;font-size:14px;line-height:1.55;white-space:pre-wrap}
 .app .stk-tablewrap,.app .tablewrap{flex:1;min-height:0;overflow:auto}
 .app .listpage{height:100%;display:flex;flex-direction:column;width:100%;max-width:1180px;margin:0 auto;padding:24px}

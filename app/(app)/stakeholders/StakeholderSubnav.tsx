@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { useSandbox } from "../SandboxProvider";
 import { sortStakeholders, useStakeholderView } from "./view";
 
@@ -9,10 +10,22 @@ export default function StakeholderSubnav() {
   const pathname = usePathname();
   const { stakeholders, companies } = useSandbox();
   const { sortKey, sortDir } = useStakeholderView();
+  const [manageOpen, setManageOpen] = useState(false);
+  const manageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (manageRef.current && !manageRef.current.contains(e.target as Node))
+        setManageOpen(false);
+    };
+    document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
+  }, []);
+  useEffect(() => setManageOpen(false), [pathname]);
 
   const m = pathname.match(/^\/stakeholders\/([^/]+)(?:\/([^/]+))?/);
   const pathId = m?.[1];
-  const sub = m?.[2]; // grants | vesting | history | undefined (= detail)
+  const sub = m?.[2];
 
   // Selection = the id in the URL, otherwise the first row of the sorted list.
   const sorted = sortStakeholders(stakeholders, companies, sortKey, sortDir);
@@ -27,12 +40,14 @@ export default function StakeholderSubnav() {
       <span className="subtab disabled">{label}</span>
     );
 
+  const manageActive = !!sub && ["audit", "history", "reports"].includes(sub);
+
   return (
     <div className="subnav">
       <div className="subnav-in">
-        {tab("List", "/stakeholders", !pathId)}
+        {tab("Stakeholders", "/stakeholders", !pathId)}
         {tab(
-          "Detail",
+          "Profile",
           targetId ? `/stakeholders/${targetId}` : null,
           !!pathId && !sub,
         )}
@@ -46,10 +61,40 @@ export default function StakeholderSubnav() {
           targetId ? `/stakeholders/${targetId}/vesting` : null,
           sub === "vesting",
         )}
-        {tab(
-          "History",
-          targetId ? `/stakeholders/${targetId}/history` : null,
-          sub === "history",
+        {targetId ? (
+          <div className={"menu" + (manageOpen ? " open" : "")} ref={manageRef}>
+            <button
+              className={"subtab" + (manageActive ? " on" : "")}
+              onClick={(e) => {
+                e.stopPropagation();
+                setManageOpen((o) => !o);
+              }}
+            >
+              Manage <span className="caret">▾</span>
+            </button>
+            <div className="menu-panel">
+              <Link
+                className="menu-item"
+                href={`/stakeholders/${targetId}/audit`}
+              >
+                <span className="mi">▤</span>Audit log
+              </Link>
+              <Link
+                className="menu-item"
+                href={`/stakeholders/${targetId}/history`}
+              >
+                <span className="mi">◷</span>History
+              </Link>
+              <Link
+                className="menu-item"
+                href={`/stakeholders/${targetId}/reports`}
+              >
+                <span className="mi">▦</span>Reports
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <span className="subtab disabled">Manage ▾</span>
         )}
       </div>
     </div>

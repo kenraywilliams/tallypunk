@@ -175,7 +175,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const flash = useCallback((id: string) => {
     setFlashId(id);
     if (flashTimer.current) window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => setFlashId(null), 2500);
+    flashTimer.current = window.setTimeout(() => setFlashId(null), 4200);
   }, []);
 
   const pushLog = (
