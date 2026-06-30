@@ -29,12 +29,33 @@ export interface Company {
   createdBy: string;
 }
 
+export type StakeholderType =
+  | "founder"
+  | "employee"
+  | "advisor"
+  | "investor"
+  | "entity"
+  | "other";
+
+export interface Stakeholder {
+  id: string;
+  seq: number; // display ID — sequential, shown zero-padded (e.g. 000001)
+  firstName: string;
+  lastName: string;
+  type: StakeholderType;
+  companyId: string | null;
+  email: string; // detail only — not shown in the table
+  notes: string; // detail only
+  createdAt: string;
+  createdBy: string;
+}
+
 export type LogAction = "CREATE" | "UPDATE" | "DELETE";
 
 export interface LogEntry {
   id: string;
   ts: string;
-  objectType: "pool" | "company";
+  objectType: "pool" | "company" | "stakeholder";
   objectId: string;
   action: LogAction;
   summary: string;
@@ -45,6 +66,7 @@ interface Sandbox {
   hydrated: boolean;
   pools: Pool[];
   companies: Company[];
+  stakeholders: Stakeholder[];
   logs: LogEntry[];
   flashId: string | null;
   addPool: (p: Omit<Pool, "id" | "createdAt" | "createdBy">) => Pool;
@@ -54,6 +76,13 @@ interface Sandbox {
   ) => void;
   addCompany: (name: string) => Company;
   updateCompany: (id: string, patch: { name: string }) => void;
+  addStakeholder: (
+    s: Omit<Stakeholder, "id" | "seq" | "createdAt" | "createdBy">,
+  ) => Stakeholder;
+  updateStakeholder: (
+    id: string,
+    patch: Partial<Omit<Stakeholder, "id" | "createdAt" | "createdBy">>,
+  ) => void;
   poolsForCompany: (companyId: string) => Pool[];
   grantedFor: (poolId: string) => number;
   logsFor: (objectId: string) => LogEntry[];
@@ -71,6 +100,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [pools, setPools] = useState<Pool[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [toastKey, setToastKey] = useState(0);
@@ -97,6 +127,22 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
             createdBy: fixActor(c.createdBy),
           })),
         );
+        {
+          const arr: Stakeholder[] = Array.isArray(d.stakeholders)
+            ? d.stakeholders
+            : [];
+          let maxSeq = arr.reduce(
+            (mx, x) => (typeof x.seq === "number" ? Math.max(mx, x.seq) : mx),
+            0,
+          );
+          setStakeholders(
+            arr.map((x) => ({
+              ...x,
+              createdBy: fixActor(x.createdBy),
+              seq: typeof x.seq === "number" ? x.seq : ++maxSeq,
+            })),
+          );
+        }
         setLogs(
           (Array.isArray(d.logs) ? d.logs : []).map((l: LogEntry) => ({
             ...l,
@@ -112,9 +158,12 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (hydrated) {
-      localStorage.setItem(KEY, JSON.stringify({ pools, companies, logs }));
+      localStorage.setItem(
+        KEY,
+        JSON.stringify({ pools, companies, stakeholders, logs }),
+      );
     }
-  }, [pools, companies, logs, hydrated]);
+  }, [pools, companies, stakeholders, logs, hydrated]);
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
@@ -130,7 +179,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const pushLog = (
-    objectType: "pool" | "company",
+    objectType: "pool" | "company" | "stakeholder",
     objectId: string,
     action: LogAction,
     summary: string,
@@ -207,6 +256,47 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     flash(id);
   };
 
+  const stTypeLabel = (t: StakeholderType) =>
+    t.charAt(0).toUpperCase() + t.slice(1);
+
+  const addStakeholder: Sandbox["addStakeholder"] = (s) => {
+    const seq = stakeholders.reduce((mx, x) => Math.max(mx, x.seq), 0) + 1;
+    const st: Stakeholder = {
+      ...s,
+      id: uid(),
+      seq,
+      createdAt: new Date().toISOString(),
+      createdBy: ME,
+    };
+    setStakeholders((cur) => [...cur, st]);
+    pushLog("stakeholder", st.id, "CREATE", "Stakeholder created");
+    flash(st.id);
+    return st;
+  };
+
+  const updateStakeholder: Sandbox["updateStakeholder"] = (id, patch) => {
+    const old = stakeholders.find((s) => s.id === id);
+    if (!old) return;
+    setStakeholders((cur) =>
+      cur.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+    );
+    const parts: string[] = [];
+    if (patch.firstName !== undefined && patch.firstName !== old.firstName)
+      parts.push(`first name ${old.firstName || "—"} → ${patch.firstName || "—"}`);
+    if (patch.lastName !== undefined && patch.lastName !== old.lastName)
+      parts.push(`last name ${old.lastName || "—"} → ${patch.lastName || "—"}`);
+    if (patch.type !== undefined && patch.type !== old.type)
+      parts.push(`type ${stTypeLabel(old.type)} → ${stTypeLabel(patch.type)}`);
+    if (patch.companyId !== undefined && patch.companyId !== old.companyId)
+      parts.push(`company ${cname(old.companyId)} → ${cname(patch.companyId)}`);
+    if (patch.email !== undefined && patch.email !== old.email)
+      parts.push(`email ${old.email || "—"} → ${patch.email || "—"}`);
+    if (patch.notes !== undefined && patch.notes !== old.notes)
+      parts.push("notes updated");
+    if (parts.length) pushLog("stakeholder", id, "UPDATE", parts.join("; "));
+    flash(id);
+  };
+
   const poolsForCompany = (companyId: string) =>
     pools.filter((p) => p.companyId === companyId);
   const grantedFor = (_poolId: string) => 0; // no grants yet — wires to Grants later
@@ -215,6 +305,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const resetSandbox = () => {
     setPools([]);
     setCompanies([]);
+    setStakeholders([]);
     setLogs([]);
   };
 
@@ -224,12 +315,15 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         hydrated,
         pools,
         companies,
+        stakeholders,
         logs,
         flashId,
         addPool,
         updatePool,
         addCompany,
         updateCompany,
+        addStakeholder,
+        updateStakeholder,
         poolsForCompany,
         grantedFor,
         logsFor,
