@@ -148,12 +148,6 @@ export default function StakeholdersPage() {
                 </div>
               )}
             </div>
-            <button
-              className="btn btn-pri btn-sm"
-              onClick={() => setCreating(true)}
-            >
-              + Add stakeholder
-            </button>
           </div>
         )}
       </div>

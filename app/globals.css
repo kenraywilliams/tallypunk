@@ -270,6 +270,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .app .subtab.disabled{opacity:.38;cursor:not-allowed;pointer-events:none}
 .app .panel{background:var(--bg2);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px 22px 18px}
 .app .sh{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-bottom:16px;max-width:100%}
+.app .subnav-add{margin-left:auto;align-self:center;white-space:nowrap}
 .app .sh-id{display:flex;align-items:center;gap:12px;min-width:0;max-width:100%}
 .app .sh-name{font-family:var(--fh);font-size:30px;font-weight:600;letter-spacing:-.01em;margin:0;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app .sh-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}

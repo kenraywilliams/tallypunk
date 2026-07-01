@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useSandbox } from "../SandboxProvider";
 import { sortStakeholders, useStakeholderView } from "./view";
+import CreateStakeholderModal from "./CreateStakeholderModal";
 
 export default function StakeholderSubnav() {
   const pathname = usePathname();
   const { stakeholders, companies } = useSandbox();
   const { sortKey, sortDir } = useStakeholderView();
   const [manageOpen, setManageOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
   const manageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,7 +98,19 @@ export default function StakeholderSubnav() {
         ) : (
           <span className="subtab disabled">Manage ▾</span>
         )}
+        <button
+          className="btn btn-pri btn-sm subnav-add"
+          onClick={() => setCreating(true)}
+        >
+          + Add stakeholder
+        </button>
       </div>
+      {creating && (
+        <CreateStakeholderModal
+          onClose={() => setCreating(false)}
+          onCreated={() => setCreating(false)}
+        />
+      )}
     </div>
   );
 }
