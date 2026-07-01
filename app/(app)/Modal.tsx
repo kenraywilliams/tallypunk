@@ -8,12 +8,14 @@ export default function Modal({
   onClose,
   children,
   sm,
+  lg,
   dismissable,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
   sm?: boolean;
+  lg?: boolean;
   dismissable?: boolean;
 }) {
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -53,7 +55,7 @@ export default function Modal({
       }
     >
       <div
-        className={"modal" + (sm ? " modal-sm" : "")}
+        className={"modal" + (sm ? " modal-sm" : "") + (lg ? " modal-lg" : "")}
         style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
       >
         <div className="modal-bar" onMouseDown={onDown}>

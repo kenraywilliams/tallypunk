@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { Vesting } from "./grants/vesting";
 
 // ---- Data shapes (map 1:1 to the future Postgres tables) ----
 export type PoolType = "real" | "phantom";
@@ -50,12 +51,25 @@ export interface Stakeholder {
   createdBy: string;
 }
 
+export interface Grant {
+  id: string;
+  seq: number; // display ID (0000001)
+  stakeholderId: string;
+  poolId: string | null; // null = no pool (GRANT-04)
+  quantity: number;
+  grantDate: string; // yyyy-mm-dd
+  strike: number | null;
+  vesting: Vesting;
+  createdAt: string;
+  createdBy: string;
+}
+
 export type LogAction = "CREATE" | "UPDATE" | "DELETE";
 
 export interface LogEntry {
   id: string;
   ts: string;
-  objectType: "pool" | "company" | "stakeholder";
+  objectType: "pool" | "company" | "stakeholder" | "grant";
   objectId: string;
   action: LogAction;
   summary: string;
@@ -67,6 +81,7 @@ interface Sandbox {
   pools: Pool[];
   companies: Company[];
   stakeholders: Stakeholder[];
+  grants: Grant[];
   logs: LogEntry[];
   flashId: string | null;
   addPool: (p: Omit<Pool, "id" | "createdAt" | "createdBy">) => Pool;
@@ -83,6 +98,15 @@ interface Sandbox {
     id: string,
     patch: Partial<Omit<Stakeholder, "id" | "createdAt" | "createdBy">>,
   ) => void;
+  addGrant: (
+    g: Omit<Grant, "id" | "seq" | "createdAt" | "createdBy">,
+  ) => Grant;
+  updateGrant: (
+    id: string,
+    patch: Partial<Omit<Grant, "id" | "seq" | "createdAt" | "createdBy">>,
+  ) => void;
+  grantsForStakeholder: (stakeholderId: string) => Grant[];
+  grantsForPool: (poolId: string) => Grant[];
   poolsForCompany: (companyId: string) => Pool[];
   grantedFor: (poolId: string) => number;
   logsFor: (objectId: string) => LogEntry[];
@@ -101,6 +125,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [pools, setPools] = useState<Pool[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
+  const [grants, setGrants] = useState<Grant[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [toastKey, setToastKey] = useState(0);
@@ -143,6 +168,20 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
             })),
           );
         }
+        {
+          const arr: Grant[] = Array.isArray(d.grants) ? d.grants : [];
+          let maxSeq = arr.reduce(
+            (mx, x) => (typeof x.seq === "number" ? Math.max(mx, x.seq) : mx),
+            0,
+          );
+          setGrants(
+            arr.map((x) => ({
+              ...x,
+              createdBy: fixActor(x.createdBy),
+              seq: typeof x.seq === "number" ? x.seq : ++maxSeq,
+            })),
+          );
+        }
         setLogs(
           (Array.isArray(d.logs) ? d.logs : []).map((l: LogEntry) => ({
             ...l,
@@ -160,10 +199,10 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     if (hydrated) {
       localStorage.setItem(
         KEY,
-        JSON.stringify({ pools, companies, stakeholders, logs }),
+        JSON.stringify({ pools, companies, stakeholders, grants, logs }),
       );
     }
-  }, [pools, companies, stakeholders, logs, hydrated]);
+  }, [pools, companies, stakeholders, grants, logs, hydrated]);
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
@@ -179,7 +218,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const pushLog = (
-    objectType: "pool" | "company" | "stakeholder",
+    objectType: "pool" | "company" | "stakeholder" | "grant",
     objectId: string,
     action: LogAction,
     summary: string,
@@ -297,15 +336,60 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     flash(id);
   };
 
+  const pname = (id: string | null) =>
+    id ? (pools.find((p) => p.id === id)?.name ?? "—") : "None";
+
+  const addGrant: Sandbox["addGrant"] = (g) => {
+    const seq = grants.reduce((mx, x) => Math.max(mx, x.seq), 0) + 1;
+    const gr: Grant = {
+      ...g,
+      id: uid(),
+      seq,
+      createdAt: new Date().toISOString(),
+      createdBy: ME,
+    };
+    setGrants((cur) => [...cur, gr]);
+    pushLog("grant", gr.id, "CREATE", "Grant created");
+    flash(gr.id);
+    return gr;
+  };
+
+  const updateGrant: Sandbox["updateGrant"] = (id, patch) => {
+    const old = grants.find((g) => g.id === id);
+    if (!old) return;
+    setGrants((cur) => cur.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+    const parts: string[] = [];
+    if (patch.quantity !== undefined && patch.quantity !== old.quantity)
+      parts.push(
+        `quantity ${old.quantity.toLocaleString()} → ${patch.quantity.toLocaleString()}`,
+      );
+    if (patch.poolId !== undefined && patch.poolId !== old.poolId)
+      parts.push(`pool ${pname(old.poolId)} → ${pname(patch.poolId)}`);
+    if (patch.grantDate !== undefined && patch.grantDate !== old.grantDate)
+      parts.push(`grant date ${old.grantDate} → ${patch.grantDate}`);
+    if (patch.vesting !== undefined) parts.push("vesting updated");
+    if (parts.length) pushLog("grant", id, "UPDATE", parts.join("; "));
+    flash(id);
+  };
+
+  const grantsForStakeholder = (stakeholderId: string) =>
+    grants.filter((g) => g.stakeholderId === stakeholderId);
+  const grantsForPool = (poolId: string) =>
+    grants.filter((g) => g.poolId === poolId);
+
   const poolsForCompany = (companyId: string) =>
     pools.filter((p) => p.companyId === companyId);
-  const grantedFor = (_poolId: string) => 0; // no grants yet — wires to Grants later
+  const grantedFor = (poolId: string) =>
+    grants
+      .filter((g) => g.poolId === poolId)
+      .reduce((sum, g) => sum + (g.quantity || 0), 0);
   const logsFor = (objectId: string) =>
     logs.filter((l) => l.objectId === objectId);
   const resetSandbox = () => {
     setPools([]);
     setCompanies([]);
     setStakeholders([]);
+    setGrants([]);
     setLogs([]);
   };
 
@@ -316,6 +400,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         pools,
         companies,
         stakeholders,
+        grants,
         logs,
         flashId,
         addPool,
@@ -324,6 +409,10 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         updateCompany,
         addStakeholder,
         updateStakeholder,
+        addGrant,
+        updateGrant,
+        grantsForStakeholder,
+        grantsForPool,
         poolsForCompany,
         grantedFor,
         logsFor,

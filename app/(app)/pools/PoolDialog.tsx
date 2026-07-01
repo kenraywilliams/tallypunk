@@ -23,10 +23,12 @@ export default function PoolDialog({
   pool,
   startEdit,
   onClose,
+  onCreated,
 }: {
   pool?: Pool;
   startEdit?: boolean;
   onClose: () => void;
+  onCreated?: (p: Pool) => void;
 }) {
   const { companies, pools, addPool, updatePool, grantedFor, notify } =
     useSandbox();
@@ -108,6 +110,7 @@ export default function PoolDialog({
           ? `${created.name} created`
           : `${created.name} created as an unlimited pool`,
       );
+      onCreated?.(created);
     }
     onClose();
   };

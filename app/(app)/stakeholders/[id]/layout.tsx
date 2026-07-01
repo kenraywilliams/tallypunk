@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useSandbox } from "../../SandboxProvider";
+import CreateStakeholderModal from "../CreateStakeholderModal";
 import { fullName, typeLabel } from "../util";
 import { sortStakeholders, useStakeholderView } from "../view";
 
@@ -18,6 +19,7 @@ export default function StakeholderLayout({
   const { stakeholders, companies, hydrated } = useSandbox();
   const { navField, navDir, setNavSort } = useStakeholderView();
   const activeRef = useRef<HTMLButtonElement>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     activeRef.current?.scrollIntoView({ block: "nearest" });
@@ -85,26 +87,60 @@ export default function StakeholderLayout({
         </aside>
 
         <div className="sbody">
-          <div className="sh">
-            <div className="sh-id">
-              <span className="pill-soft">{typeLabel(s.type)}</span>
-              <h1 className="sh-name">{fullName(s) || "—"}</h1>
+          <div
+            className="sh-bar"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: 16,
+              marginBottom: 16,
+            }}
+          >
+            <div
+              className="sh"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: 8,
+              }}
+            >
+              <div className="sh-id">
+                <span className="pill-soft">{typeLabel(s.type)}</span>
+                <h1 className="sh-name">{fullName(s) || "—"}</h1>
+              </div>
+              <div className="sh-nav">
+                <button className="snav-b" onClick={() => go(prevIdx)}>
+                  ‹ Back
+                </button>
+                <span className="snav-pos">
+                  {idx + 1} of {count}
+                </span>
+                <button className="snav-b" onClick={() => go(nextIdx)}>
+                  Next ›
+                </button>
+              </div>
             </div>
-            <div className="sh-nav">
-              <button className="snav-b" onClick={() => go(prevIdx)}>
-                ‹ Back
-              </button>
-              <span className="snav-pos">
-                {idx + 1} of {count}
-              </span>
-              <button className="snav-b" onClick={() => go(nextIdx)}>
-                Next ›
-              </button>
-            </div>
+            <button
+              className="btn btn-pri btn-sm"
+              style={{ flex: "none", whiteSpace: "nowrap" }}
+              onClick={() => setCreating(true)}
+            >
+              + Add stakeholder
+            </button>
           </div>
           <div className="sbody-scroll">{children}</div>
         </div>
       </div>
+      {creating && (
+        <CreateStakeholderModal
+          onClose={() => setCreating(false)}
+          onCreated={() => setCreating(false)}
+        />
+      )}
     </div>
   );
 }
