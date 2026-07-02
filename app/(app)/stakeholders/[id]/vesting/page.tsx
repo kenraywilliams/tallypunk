@@ -120,9 +120,23 @@ export default function StakeholderVestingPage() {
       if (p.ms >= xLimMin && p.ms <= xLimMax) set.add(p.ms);
     }),
   );
-  const times = [...set]
+  const rawTimes = [...set]
     .filter((t) => t >= xLimMin && t <= xLimMax)
     .sort((a, b) => a - b);
+  // Fill wide gaps with ~monthly hover points so the cursor always catches
+  // something. These land on flat treads (value unchanged), so the steps are
+  // untouched — they're purely extra tag targets.
+  const MAX_GAP = 34 * DAY; // ≈ one month
+  const times: number[] = [];
+  for (let i = 0; i < rawTimes.length; i++) {
+    times.push(rawTimes[i]);
+    if (i < rawTimes.length - 1) {
+      const a = rawTimes[i];
+      const L = rawTimes[i + 1] - a;
+      const n = Math.max(0, Math.ceil(L / MAX_GAP) - 1);
+      for (let k = 1; k <= n; k++) times.push(Math.round(a + (L * k) / (n + 1)));
+    }
+  }
 
   const series: GrantSeries[] = meta.map((m, i) => {
     const pts = trancheData[i].pts;

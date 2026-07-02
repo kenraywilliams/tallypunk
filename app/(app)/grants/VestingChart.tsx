@@ -387,15 +387,24 @@ export default function VestingChart({
     setHy(sy);
   };
 
-  // Which series is the cursor nearest to?
-  let hovered: { name: string; value: number; color: string; y: number } | null =
-    null;
+  // Which series are under the cursor? (may be several — e.g. the top band and
+  // the total line coincide at the top of a stacked chart.) Each carries its own
+  // denominator so % is "% of THAT thing," not % of the grand total.
+  type Cand = {
+    name: string;
+    value: number;
+    denom: number;
+    color: string;
+    y: number;
+  };
+  let shown: Cand[] = [];
   if (hi != null && !drag) {
-    const cands: { name: string; value: number; color: string; y: number }[] = [];
+    const cands: Cand[] = [];
     if (prefs.total)
       cands.push({
         name: "Total",
         value: totalValues[hi],
+        denom: totalGranted,
         color: "var(--ink)",
         y: yOf(totalValues[hi]),
       });
@@ -404,6 +413,7 @@ export default function VestingChart({
         cands.push({
           name: b.ser.label,
           value: b.ser.values[hi],
+          denom: b.ser.quantity,
           color: colorOf(b.idx),
           y: yOf(b.top[hi]),
         }),
@@ -413,17 +423,27 @@ export default function VestingChart({
         cands.push({
           name: s.label,
           value: s.values[hi],
+          denom: s.quantity,
           color: colorOf(series.indexOf(s)),
           y: yOf(s.values[hi]),
         }),
       );
-    let bd = Infinity;
-    for (const c of cands) {
-      const d = Math.abs(c.y - hy);
-      if (d < bd) {
-        bd = d;
-        hovered = c;
+    if (cands.length) {
+      const near = cands.filter((c) => Math.abs(c.y - hy) <= 14);
+      if (near.length) shown = near;
+      else {
+        let best = cands[0];
+        let bd = Infinity;
+        for (const c of cands) {
+          const d = Math.abs(c.y - hy);
+          if (d < bd) {
+            bd = d;
+            best = c;
+          }
+        }
+        shown = [best];
       }
+      shown = [...shown].sort((a, b) => a.y - b.y).slice(0, 4);
     }
   }
 
@@ -616,27 +636,41 @@ export default function VestingChart({
           </>
         )}
 
-        {hi != null && hovered && (
+        {hi != null && shown.length > 0 && (
           <>
             <line x1={xOf(times[hi])} y1={padT} x2={xOf(times[hi])} y2={padT + plotH} stroke="var(--muted)" strokeWidth={1} opacity={0.4} />
-            <circle cx={xOf(times[hi])} cy={hovered.y} r={4} fill={hovered.color} stroke="var(--bg2)" strokeWidth={2} />
+            {shown.map((c, i) => (
+              <circle key={i} cx={xOf(times[hi])} cy={c.y} r={4} fill={c.color} stroke="var(--bg2)" strokeWidth={2} />
+            ))}
             {(() => {
-              const tW = 150;
-              const tH = 48;
-              const tx = clamp(xOf(times[hi]), padL + tW / 2, W - padR - tW / 2);
-              let ty = hovered.y - 14 - tH; // above the point
-              if (ty < padT + 2) ty = hovered.y + 14; // near top → drop below
-              const pct = totalGranted > 0 ? Math.round((hovered.value / totalGranted) * 100) : 0;
+              const boxW = 188;
+              const rowH = 16;
+              const boxH = shown.length * rowH + 20;
+              const tx = clamp(xOf(times[hi]), padL + boxW / 2, W - padR - boxW / 2);
+              const topY = Math.min(...shown.map((c) => c.y));
+              const botY = Math.max(...shown.map((c) => c.y));
+              let ty = topY - 12 - boxH; // above the highest dot
+              if (ty < padT + 2) ty = Math.min(botY + 14, padT + plotH - boxH); // else below
+              const left = tx - boxW / 2;
               return (
                 <g>
-                  <rect x={tx - tW / 2} y={ty} width={tW} height={tH} rx={6} fill="var(--ink)" opacity={0.93} />
-                  <text x={tx} y={ty + 16} textAnchor="middle" fontSize={11} fill="#fff" fontWeight={700}>
-                    {hovered.name}
-                  </text>
-                  <text x={tx} y={ty + 30} textAnchor="middle" fontSize={11} fill="#fff">
-                    {fmtNum(hovered.value)} · {pct}%
-                  </text>
-                  <text x={tx} y={ty + 42} textAnchor="middle" fontSize={9} fill="#fff" opacity={0.8}>
+                  <rect x={left} y={ty} width={boxW} height={boxH} rx={6} fill="var(--ink)" opacity={0.93} />
+                  {shown.map((c, i) => {
+                    const ry = ty + 18 + i * rowH;
+                    const pct = c.denom > 0 ? Math.round((c.value / c.denom) * 100) : 0;
+                    return (
+                      <g key={i}>
+                        <rect x={left + 10} y={ry - 8} width={9} height={9} rx={2} fill={c.color === "var(--ink)" ? "#fff" : c.color} />
+                        <text x={left + 25} y={ry} fontSize={11} fill="#fff" fontWeight={c.name === "Total" ? 700 : 500}>
+                          {c.name}
+                        </text>
+                        <text x={left + boxW - 10} y={ry} textAnchor="end" fontSize={11} fill="#fff">
+                          {fmtNum(c.value)} · {pct}%
+                        </text>
+                      </g>
+                    );
+                  })}
+                  <text x={tx} y={ty + boxH - 6} textAnchor="middle" fontSize={9} fill="#fff" opacity={0.7}>
                     {fmtDay(times[hi])}
                   </text>
                 </g>
