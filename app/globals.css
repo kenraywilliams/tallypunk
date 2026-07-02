@@ -273,7 +273,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--fb);-webki
 .app .sh-bar .btn{flex:none;white-space:nowrap}
 
 /* grant vesting builder */
-.modal.modal-lg{max-width:680px}
+.modal.modal-lg{max-width:1000px}
+.app .gcols{display:grid;grid-template-columns:1fr 1fr;gap:20px 30px}
+.app .gcol{min-width:0}
+@media(max-width:760px){.app .gcols{grid-template-columns:1fr}}
 .app .vbuild{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:6px;background:var(--bg)}
 .app .vyear{display:grid;grid-template-columns:70px 1fr 30px;gap:8px;align-items:center;margin-top:7px}
 .app .vtranche{display:grid;grid-template-columns:1fr 96px 30px;gap:8px;align-items:center;margin-top:7px}

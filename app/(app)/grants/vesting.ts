@@ -35,8 +35,6 @@ export const FREQS: { value: Freq; label: string; perYear: number }[] = [
   { value: "weekly", label: "Weekly", perYear: 52 },
   { value: "daily", label: "Daily", perYear: 365 },
 ];
-const perYear = (f: Freq) => FREQS.find((x) => x.value === f)?.perYear ?? 12;
-
 // ---- date helpers (operate on yyyy-mm-dd strings) ----
 function toDate(s: string): Date {
   const [y, m, d] = s.split("-").map(Number);
@@ -79,6 +77,29 @@ export function cliffDate(v: NormalVesting, grantDate: string): string {
   return addMonths(grantDate, v.cliff.years * 12 + v.cliff.months);
 }
 
+// Cumulative % vested by `asOf` for a normal schedule. The vesting spans
+// [cliffDate, grantDate + period], where period = cliff.years + rows; the per-year
+// percentages are laid across that span (so cliff months shorten the vesting, not
+// extend it). Piecewise-linear between row boundaries.
+function cumNormal(v: NormalVesting, grantDate: string, asOf: string): number {
+  const N = v.annualPercents.length;
+  if (N === 0) return 0;
+  const total = v.annualPercents.reduce((a, b) => a + (Number(b) || 0), 0);
+  const cliffMonths = v.cliff.years * 12 + v.cliff.months;
+  const startMs = toDate(addMonths(grantDate, cliffMonths)).getTime();
+  const endMs = toDate(addMonths(grantDate, (v.cliff.years + N) * 12)).getTime();
+  const asOfMs = toDate(asOf).getTime();
+  if (endMs <= startMs || asOfMs <= startMs) return 0;
+  if (asOfMs >= endMs) return total;
+  const rowFloat = ((asOfMs - startMs) / (endMs - startMs)) * N;
+  const i = Math.min(N - 1, Math.floor(rowFloat));
+  const within = rowFloat - i;
+  let before = 0;
+  for (let k = 0; k < i; k++) before += Number(v.annualPercents[k]) || 0;
+  return before + within * (Number(v.annualPercents[i]) || 0);
+}
+
+// Concrete tranches at the chosen frequency across [cliffDate, grantDate + period].
 export function generateTranches(v: Vesting, grantDate: string): Tranche[] {
   if (v.mode === "advanced") {
     return v.tranches
@@ -86,21 +107,29 @@ export function generateTranches(v: Vesting, grantDate: string): Tranche[] {
       .map((t) => ({ date: t.date, percent: Number(t.percent) || 0 }))
       .sort((a, b) => (a.date < b.date ? -1 : 1));
   }
-  const start = cliffDate(v, grantDate);
-  const n = perYear(v.freq);
+  const N = v.annualPercents.length;
+  if (N === 0) return [];
+  const cliffMonths = v.cliff.years * 12 + v.cliff.months;
+  const startIso = addMonths(grantDate, cliffMonths);
+  const endIso = addMonths(grantDate, (v.cliff.years + N) * 12);
+  const endMs = toDate(endIso).getTime();
   const out: Tranche[] = [];
-  v.annualPercents.forEach((yearPct, i) => {
-    const yearStart = addMonths(start, i * 12);
-    for (let j = 1; j <= n; j++) {
-      let date: string;
-      if (v.freq === "yearly") date = addMonths(yearStart, 12);
-      else if (v.freq === "quarterly") date = addMonths(yearStart, 3 * j);
-      else if (v.freq === "monthly") date = addMonths(yearStart, j);
-      else if (v.freq === "weekly") date = addDays(yearStart, 7 * j);
-      else date = addDays(yearStart, j); // daily
-      out.push({ date, percent: (Number(yearPct) || 0) / n });
-    }
-  });
+  let cur = startIso;
+  let prev = 0;
+  let guard = 0;
+  while (guard++ < 20000) {
+    if (v.freq === "yearly") cur = addMonths(cur, 12);
+    else if (v.freq === "quarterly") cur = addMonths(cur, 3);
+    else if (v.freq === "monthly") cur = addMonths(cur, 1);
+    else if (v.freq === "weekly") cur = addDays(cur, 7);
+    else cur = addDays(cur, 1);
+    const stop = toDate(cur).getTime() >= endMs;
+    const d = stop ? endIso : cur;
+    const c = cumNormal(v, grantDate, d);
+    out.push({ date: d, percent: c - prev });
+    prev = c;
+    if (stop) break;
+  }
   return out;
 }
 
@@ -109,10 +138,13 @@ export function vestedFraction(
   grantDate: string,
   asOf: string,
 ): number {
-  const pct = generateTranches(v, grantDate)
-    .filter((t) => t.date <= asOf)
-    .reduce((a, t) => a + t.percent, 0);
-  return Math.max(0, Math.min(1, pct / 100));
+  if (v.mode === "advanced") {
+    const pct = v.tranches
+      .filter((t) => t.date && t.date <= asOf)
+      .reduce((a, t) => a + (Number(t.percent) || 0), 0);
+    return Math.max(0, Math.min(1, pct / 100));
+  }
+  return Math.max(0, Math.min(1, cumNormal(v, grantDate, asOf) / 100));
 }
 
 export function vestedUnits(
@@ -125,18 +157,36 @@ export function vestedUnits(
 }
 
 export function fullyVestedDate(v: Vesting, grantDate: string): string | null {
-  const tr = generateTranches(v, grantDate);
-  return tr.length ? tr[tr.length - 1].date : null;
+  if (v.mode === "advanced") {
+    const ds = v.tranches
+      .filter((t) => t.date)
+      .map((t) => t.date)
+      .sort();
+    return ds.length ? ds[ds.length - 1] : null;
+  }
+  if (v.annualPercents.length === 0) return null;
+  return addMonths(grantDate, (v.cliff.years + v.annualPercents.length) * 12);
 }
 
-// Sensible default when creating a grant: 1-year cliff, 4 × 25% yearly, monthly.
+// Default when creating a grant: 4-year period, 1-year cliff (year 1 = 0%),
+// then 20 / 30 / 50 across years 2–4. Total 100%.
 export function defaultVesting(): NormalVesting {
   return {
     mode: "normal",
     cliff: { years: 1, months: 0 },
-    annualPercents: [25, 25, 25, 25],
+    annualPercents: [20, 30, 50],
     freq: "monthly",
   };
+}
+
+// `count` per-year percentages that sum to exactly 100 (last row absorbs rounding).
+export function evenPercents(count: number): number[] {
+  const n = Math.max(1, Math.floor(count));
+  const base = Math.floor(10000 / n) / 100; // 2-dp floor of 100/n
+  const out = new Array(n).fill(base);
+  const used = Math.round(base * n * 100) / 100;
+  out[n - 1] = Math.round((out[n - 1] + (100 - used)) * 100) / 100;
+  return out;
 }
 
 // Seed the Advanced editor from a Normal schedule: one tranche per vesting year.

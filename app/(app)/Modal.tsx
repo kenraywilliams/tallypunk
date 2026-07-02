@@ -56,7 +56,10 @@ export default function Modal({
     >
       <div
         className={"modal" + (sm ? " modal-sm" : "") + (lg ? " modal-lg" : "")}
-        style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+        style={{
+          transform: `translate(${pos.x}px, ${pos.y}px)`,
+          maxWidth: lg ? 1000 : sm ? 380 : undefined,
+        }}
       >
         <div className="modal-bar" onMouseDown={onDown}>
           <h3 className="modal-title">{title}</h3>
