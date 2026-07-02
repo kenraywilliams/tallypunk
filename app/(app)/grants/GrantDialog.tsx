@@ -227,35 +227,35 @@ export default function GrantDialog({
   const overCapacity = poolRemaining != null && Number(qty) > poolRemaining;
 
   // ---- vesting editors ----
-  const period =
-    vesting.mode === "normal"
-      ? vesting.cliff.years + vesting.annualPercents.length
-      : 0;
+  // Vesting period = number of schedule years (N). The cliff is a gate WITHIN
+  // that period (0..N), not extra years on top.
+  const period = vesting.mode === "normal" ? vesting.annualPercents.length : 0;
   const setPeriod = (p: number) => {
     if (vesting.mode !== "normal") return;
     const pp = Math.max(1, p);
-    // if the period no longer leaves room for the cliff, lower the cliff (don't block)
-    const cy = pp <= vesting.cliff.years ? Math.max(0, pp - 1) : vesting.cliff.years;
-    const rows = Math.max(1, pp - cy);
+    const cy = Math.min(vesting.cliff.years, pp); // cliff can't exceed the period
+    const cm = cy === pp ? 0 : vesting.cliff.months;
     setVesting({
       ...vesting,
-      cliff: { ...vesting.cliff, years: cy },
-      annualPercents: evenPercents(rows),
+      cliff: { years: cy, months: cm },
+      annualPercents: evenPercents(pp),
     });
   };
   const setCliffYears = (cy: number) => {
     if (vesting.mode !== "normal") return;
-    const curPeriod = vesting.cliff.years + vesting.annualPercents.length;
-    const rows = Math.max(1, curPeriod - cy);
-    setVesting({
-      ...vesting,
-      cliff: { ...vesting.cliff, years: cy },
-      annualPercents: evenPercents(rows),
-    });
+    const N = vesting.annualPercents.length;
+    const cyy = Math.max(0, Math.min(cy, N)); // 0..period
+    const cm = cyy === N ? 0 : vesting.cliff.months; // full-period cliff = single vest
+    setVesting({ ...vesting, cliff: { years: cyy, months: cm } });
   };
   const setCliffMonths = (m: number) => {
     if (vesting.mode !== "normal") return;
-    setVesting({ ...vesting, cliff: { ...vesting.cliff, months: m } });
+    const N = vesting.annualPercents.length;
+    const maxMo = Math.max(0, N * 12 - vesting.cliff.years * 12);
+    setVesting({
+      ...vesting,
+      cliff: { ...vesting.cliff, months: Math.max(0, Math.min(m, maxMo)) },
+    });
   };
   const setFreq = (f: Freq) => {
     if (vesting.mode !== "normal") return;
@@ -273,9 +273,13 @@ export default function GrantDialog({
   };
   const removeYear = (i: number) => {
     if (vesting.mode !== "normal" || vesting.annualPercents.length <= 1) return;
+    const next = vesting.annualPercents.filter((_, idx) => idx !== i);
+    const cy = Math.min(vesting.cliff.years, next.length);
+    const cm = cy === next.length ? 0 : vesting.cliff.months;
     setVesting({
       ...vesting,
-      annualPercents: vesting.annualPercents.filter((_, idx) => idx !== i),
+      annualPercents: next,
+      cliff: { years: cy, months: cm },
     });
   };
   const setTranche = (i: number, patch: { date?: string; percent?: number }) => {
@@ -669,7 +673,7 @@ export default function GrantDialog({
                     <label className="lab">Vesting schedule</label>
                     {vesting.annualPercents.map((p, i) => (
                       <div style={rowS} key={i}>
-                        <span style={yrS}>Year {vesting.cliff.years + i + 1}</span>
+                        <span style={yrS}>Year {i + 1}</span>
                         <PercentInput
                           value={p}
                           decimals={decY}
@@ -695,6 +699,16 @@ export default function GrantDialog({
                     >
                       + Add year
                     </button>
+                    {(vesting.cliff.years > 0 || vesting.cliff.months > 0) && (
+                      <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 10 }}>
+                        Nothing vests until the cliff (
+                        {vesting.cliff.years > 0 ? `${vesting.cliff.years} yr` : ""}
+                        {vesting.cliff.months > 0 ? ` ${vesting.cliff.months} mo` : ""}
+                        ). On that date everything earned so far vests at once, then
+                        it steps{" "}
+                        {FREQS.find((f) => f.value === vesting.freq)?.label.toLowerCase()}.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>
