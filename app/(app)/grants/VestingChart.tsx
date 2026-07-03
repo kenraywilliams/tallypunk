@@ -13,15 +13,22 @@ export interface GrantSeries {
 }
 
 const W = 760;
-const H = 340;
+const H = 360;
 const padL = 60;
 const padR = 18;
 const padT = 20;
-const padB = 42;
+const padB = 60; // roomy gutter: markers live below the axis, then the year labels
 const plotW = W - padL - padR;
 const plotH = H - padT - padB;
 const DAY = 86400000;
 const MIN_XW = 14 * DAY; // tightest time window: two weeks
+// marker gutter (below the plot): cliff/grant icons + their letters, above the x labels
+const GUT = padT + plotH; // plot bottom — marker tips touch here
+const M_APEX = GUT; // cliff snow tip / pen tip sit on the axis
+const M_BASE = GUT + 12; // cliff base
+const M_CLETTER = GUT + 21; // cliff letter (below the cliff icon)
+const PEN_LEN = 18; // pen — longer than the cliff icon
+const M_GLETTER = GUT + 31; // grant letter (below the pen, so it clears CX)
 
 const COLORS = [
   "#8a4b6b",
@@ -177,11 +184,21 @@ export default function VestingChart({
 
   const [hi, setHi] = useState<number | null>(null);
   const [hy, setHy] = useState(0);
+  const [gutter, setGutter] = useState(false); // hovering a marker below the axis
   const [region, setRegion] = useState<"plot" | "x" | "y" | null>(null);
+  const [boxMode, setBoxMode] = useState(false); // marquee-zoom armed
+  const [boxRect, setBoxRect] = useState<
+    { x: number; y: number; w: number; h: number } | null
+  >(null);
+  const boxRef = useRef<{ x: number; y: number; w: number; h: number } | null>(
+    null,
+  );
   const [drag, setDrag] = useState<null | {
-    kind: "pan" | "x" | "y";
+    kind: "pan" | "x" | "y" | "box";
     cx: number;
     cy: number;
+    rl: number;
+    rt: number;
     rw: number;
     rh: number;
     afx: number;
@@ -195,6 +212,21 @@ export default function VestingChart({
   useEffect(() => {
     if (!drag) return;
     const onMoveWin = (e: MouseEvent) => {
+      if (drag.kind === "box") {
+        const cxs = clamp(((e.clientX - drag.rl) / drag.rw) * W, padL, W - padR);
+        const cys = clamp(((e.clientY - drag.rt) / drag.rh) * H, padT, padT + plotH);
+        const sx0 = clamp(((drag.cx - drag.rl) / drag.rw) * W, padL, W - padR);
+        const sy0 = clamp(((drag.cy - drag.rt) / drag.rh) * H, padT, padT + plotH);
+        const r = {
+          x: Math.min(sx0, cxs),
+          y: Math.min(sy0, cys),
+          w: Math.abs(cxs - sx0),
+          h: Math.abs(cys - sy0),
+        };
+        boxRef.current = r;
+        setBoxRect(r);
+        return;
+      }
       const dxSvg = ((e.clientX - drag.cx) / drag.rw) * W;
       const dySvg = ((e.clientY - drag.cy) / drag.rh) * H;
       const w0 = drag.v0.xMax - drag.v0.xMin;
@@ -255,7 +287,42 @@ export default function VestingChart({
         setView({ ...drag.v0, yMin: Math.max(0, nyMin), yMax: nyMax });
       }
     };
-    const onUp = () => setDrag(null);
+    const onUp = () => {
+      if (drag.kind === "box") {
+        const b = boxRef.current;
+        if (b && b.w > 4 && b.h > 4) {
+          const v0 = drag.v0;
+          const tAt = (sx: number) =>
+            v0.xMin + ((sx - padL) / plotW) * (v0.xMax - v0.xMin);
+          const vAt = (sy: number) =>
+            v0.yMax - ((sy - padT) / plotH) * (v0.yMax - v0.yMin);
+          let nxMin = tAt(b.x);
+          let nxMax = tAt(b.x + b.w);
+          let nyMax = vAt(b.y);
+          let nyMin = vAt(b.y + b.h);
+          if (nxMax - nxMin < MIN_XW) {
+            const c = (nxMin + nxMax) / 2;
+            nxMin = c - MIN_XW / 2;
+            nxMax = c + MIN_XW / 2;
+          }
+          if (nyMax - nyMin < minYW) {
+            const c = (nyMin + nyMax) / 2;
+            nyMin = c - minYW / 2;
+            nyMax = c + minYW / 2;
+          }
+          setView({
+            xMin: clamp(nxMin, xLimMin, xLimMax),
+            xMax: clamp(nxMax, xLimMin, xLimMax),
+            yMin: Math.max(0, nyMin),
+            yMax: Math.min(yCap, nyMax),
+          });
+        }
+        boxRef.current = null;
+        setBoxRect(null);
+        setBoxMode(false);
+      }
+      setDrag(null);
+    };
     window.addEventListener("mousemove", onMoveWin);
     window.addEventListener("mouseup", onUp);
     return () => {
@@ -270,8 +337,6 @@ export default function VestingChart({
   const yr = view.yMax - view.yMin || 1;
   const xOf = (t: number) => padL + ((t - view.xMin) / xr) * plotW;
   const yOf = (v: number) => padT + plotH - ((v - view.yMin) / yr) * plotH;
-  const baseY = yOf(0);
-  const baselineVisible = baseY <= padT + plotH + 0.5;
   const colorOf = (i: number) => COLORS[i % COLORS.length];
 
   const vis = series.filter((s) => !hidden.has(s.id));
@@ -343,13 +408,17 @@ export default function VestingChart({
     const sx = ((e.clientX - rect.left) / rect.width) * W;
     const sy = ((e.clientY - rect.top) / rect.height) * H;
     const reg = regionAt(sx, sy);
-    const kind = reg === "plot" ? "pan" : reg; // plot body → pan toward cursor
+    // plot body → pan; but if box-zoom is armed, drag a marquee instead
+    const kind =
+      reg === "plot" ? (boxMode ? "box" : "pan") : reg;
     const afx = clamp((sx - padL) / plotW, 0, 1);
     const afy = clamp((sy - padT) / plotH, 0, 1);
     setDrag({
       kind,
       cx: e.clientX,
       cy: e.clientY,
+      rl: rect.left,
+      rt: rect.top,
       rw: rect.width,
       rh: rect.height,
       afx,
@@ -358,6 +427,10 @@ export default function VestingChart({
       anchorVal: view.yMax - afy * yr,
       v0: { ...view },
     });
+    if (kind === "box") {
+      boxRef.current = { x: sx, y: sy, w: 0, h: 0 };
+      setBoxRect({ x: sx, y: sy, w: 0, h: 0 });
+    }
     setHi(null);
   };
 
@@ -370,6 +443,39 @@ export default function VestingChart({
     const sy = ((e.clientY - rect.top) / rect.height) * H;
     const reg = regionAt(sx, sy);
     setRegion(reg);
+    // Marker zone: below the axis, or just above it — snap to the nearest
+    // grant/cliff marker so hovering a pen shows that grant + its date.
+    const nearBottom = sy > padT + plotH - 16;
+    if (reg === "x" || (reg === "plot" && nearBottom)) {
+      let bestMs: number | null = null;
+      let bmd = Infinity;
+      for (const s of series) {
+        const marks: number[] = [];
+        if (prefs.dates) marks.push(s.grantMs);
+        if (prefs.cliffs && s.cliffMs != null) marks.push(s.cliffMs);
+        for (const ms of marks) {
+          if (ms < view.xMin || ms > view.xMax) continue;
+          const d = Math.abs(xOf(ms) - sx);
+          if (d < bmd) {
+            bmd = d;
+            bestMs = ms;
+          }
+        }
+      }
+      const idx = bestMs != null && bmd <= 12 ? times.indexOf(bestMs) : -1;
+      if (idx >= 0) {
+        setHi(idx);
+        setGutter(true);
+        return;
+      }
+      if (reg === "x") {
+        setHi(null);
+        setGutter(false);
+        return;
+      }
+      // plot near the axis but not on a marker → fall through to normal hover
+    }
+    setGutter(false);
     if (reg !== "plot") {
       setHi(null);
       return;
@@ -396,9 +502,38 @@ export default function VestingChart({
     denom: number;
     color: string;
     y: number;
+    evt: string; // "granted" / "cliffed" when the cursor is on that series' date
   };
   let shown: Cand[] = [];
-  if (hi != null && !drag) {
+  if (hi != null && !drag && gutter) {
+    // hovering a marker in the gutter → show just that grant (granted/cliffed)
+    const tHi = times[hi];
+    const cands: Cand[] = [];
+    series.forEach((s, idx) => {
+      const isG = prefs.dates && s.grantMs === tHi;
+      const isC = prefs.cliffs && s.cliffMs === tHi;
+      if (!isG && !isC) return;
+      const parts: string[] = [];
+      if (isG) parts.push("granted");
+      if (isC) parts.push("cliffed");
+      cands.push({
+        name: s.label,
+        value: s.values[hi],
+        denom: s.quantity,
+        color: colorOf(idx),
+        y: yOf(s.values[hi]),
+        evt: parts.join(" · "),
+      });
+    });
+    shown = cands.sort((a, b) => a.y - b.y).slice(0, 4);
+  } else if (hi != null && !drag) {
+    const tHi = times[hi];
+    const eventFor = (s: GrantSeries): string => {
+      const parts: string[] = [];
+      if (s.grantMs === tHi) parts.push("granted");
+      if (s.cliffMs === tHi) parts.push("cliffed");
+      return parts.join(" · ");
+    };
     const cands: Cand[] = [];
     if (prefs.total)
       cands.push({
@@ -407,6 +542,7 @@ export default function VestingChart({
         denom: totalGranted,
         color: "var(--ink)",
         y: yOf(totalValues[hi]),
+        evt: "",
       });
     if (prefs.sand)
       bands.forEach((b) =>
@@ -416,6 +552,7 @@ export default function VestingChart({
           denom: b.ser.quantity,
           color: colorOf(b.idx),
           y: yOf(b.top[hi]),
+          evt: eventFor(b.ser),
         }),
       );
     else
@@ -426,6 +563,7 @@ export default function VestingChart({
           denom: s.quantity,
           color: colorOf(series.indexOf(s)),
           y: yOf(s.values[hi]),
+          evt: eventFor(s),
         }),
       );
     if (cands.length) {
@@ -443,7 +581,13 @@ export default function VestingChart({
         }
         shown = [best];
       }
-      shown = [...shown].sort((a, b) => a.y - b.y).slice(0, 4);
+      // drop 0%/pre-cliff grants with no event — they only clutter the tag
+      const meaningful = shown.filter(
+        (c) => c.name === "Total" || !!c.evt || c.value > 0,
+      );
+      shown = (meaningful.length ? meaningful : shown.slice(0, 1))
+        .sort((a, b) => a.y - b.y)
+        .slice(0, 4);
     }
   }
 
@@ -452,12 +596,16 @@ export default function VestingChart({
       ? "ns-resize"
       : drag.kind === "x"
         ? "ew-resize"
-        : "grabbing"
-    : region === "y"
-      ? "ns-resize"
-      : region === "x"
-        ? "ew-resize"
-        : "crosshair";
+        : drag.kind === "box"
+          ? "crosshair"
+          : "grabbing"
+    : boxMode && region === "plot"
+      ? "crosshair"
+      : region === "y"
+        ? "ns-resize"
+        : region === "x"
+          ? "ew-resize"
+          : "crosshair";
   const zoomed =
     view.xMin !== xMin ||
     view.xMax !== xMax ||
@@ -504,24 +652,49 @@ export default function VestingChart({
             {s.label}
           </button>
         ))}
-        {zoomed && (
+        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
           <button
             type="button"
-            onClick={reset}
+            onClick={() => setBoxMode((m) => !m)}
+            title="Box zoom — click, then drag a rectangle on the chart to zoom to it"
             style={{
-              marginLeft: "auto",
-              border: "1px solid var(--line)",
-              background: "var(--bg2)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              border: "1px solid " + (boxMode ? "var(--accent)" : "var(--line)"),
+              background: boxMode ? "var(--accent-soft)" : "var(--bg2)",
               borderRadius: 6,
-              padding: "3px 10px",
+              padding: "3px 9px",
               fontSize: 12,
               cursor: "pointer",
-              color: "var(--ink)",
+              color: boxMode ? "var(--accent)" : "var(--ink)",
             }}
           >
-            Reset zoom
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden>
+              <circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+              <line x1="10" y1="10" x2="15" y2="15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              <rect x="4.4" y="4.4" width="4.2" height="4.2" rx="0.6" fill="none" stroke="currentColor" strokeWidth="1" />
+            </svg>
+            Box zoom
           </button>
-        )}
+          {zoomed && (
+            <button
+              type="button"
+              onClick={reset}
+              style={{
+                border: "1px solid var(--line)",
+                background: "var(--bg2)",
+                borderRadius: 6,
+                padding: "3px 10px",
+                fontSize: 12,
+                cursor: "pointer",
+                color: "var(--ink)",
+              }}
+            >
+              Reset zoom
+            </button>
+          )}
+        </span>
       </div>
 
       <svg
@@ -533,6 +706,7 @@ export default function VestingChart({
         onMouseLeave={() => {
           setHi(null);
           setRegion(null);
+          setGutter(false);
         }}
         onDoubleClick={reset}
       >
@@ -590,42 +764,59 @@ export default function VestingChart({
               ))}
 
           {prefs.total && (
-            <path d={linePath(totalValues)} fill="none" stroke="var(--ink)" strokeWidth={2.5} opacity={0.85} />
+            <path d={linePath(totalValues)} fill="none" stroke="var(--ink)" strokeWidth={1.25} opacity={0.85} />
           )}
         </g>
 
-        {prefs.dates &&
-          baselineVisible &&
-          series.map((s, i) =>
-            s.grantMs >= view.xMin && s.grantMs <= view.xMax ? (
-              <g key={"gd" + s.id}>
-                <line x1={xOf(s.grantMs)} y1={baseY} x2={xOf(s.grantMs)} y2={baseY - 8} stroke={colorOf(i)} strokeWidth={2} />
-                <text x={xOf(s.grantMs)} y={baseY + 13} textAnchor="middle" fontSize={9} fill={colorOf(i)} fontWeight={700}>
-                  G{i + 1}
-                </text>
-              </g>
-            ) : null,
-          )}
-
+        {/* markers live in the gutter below the axis (never over the chart);
+            cliffs first, grants painted on top so both show when they overlap */}
         {prefs.cliffs &&
-          baselineVisible &&
-          series.map((s, i) =>
-            s.cliffMs == null || s.cliffMs < view.xMin || s.cliffMs > view.xMax ? null : (
+          series.map((s, i) => {
+            if (s.cliffMs == null || s.cliffMs < view.xMin || s.cliffMs > view.xMax)
+              return null;
+            const cx = xOf(s.cliffMs);
+            return (
               <g key={"cl" + s.id}>
                 <path
-                  d={`M ${(xOf(s.cliffMs) - 8).toFixed(1)} ${baseY} L ${xOf(s.cliffMs).toFixed(1)} ${baseY - 13} L ${(xOf(s.cliffMs) + 8).toFixed(1)} ${baseY} Z`}
+                  d={`M ${(cx - 7).toFixed(1)} ${M_BASE} L ${cx.toFixed(1)} ${M_APEX} L ${(cx + 7).toFixed(1)} ${M_BASE} Z`}
                   fill={colorOf(i)}
                 />
                 <path
-                  d={`M ${(xOf(s.cliffMs) - 3).toFixed(1)} ${baseY - 8} L ${xOf(s.cliffMs).toFixed(1)} ${baseY - 13} L ${(xOf(s.cliffMs) + 3).toFixed(1)} ${baseY - 8} Z`}
+                  d={`M ${(cx - 2.6).toFixed(1)} ${M_APEX + 4.5} L ${cx.toFixed(1)} ${M_APEX} L ${(cx + 2.6).toFixed(1)} ${M_APEX + 4.5} Z`}
                   fill="#fff"
                 />
-                <text x={xOf(s.cliffMs)} y={baseY - 17} textAnchor="middle" fontSize={9} fill={colorOf(i)} fontWeight={700}>
+                <text x={cx} y={M_CLETTER} textAnchor="middle" fontSize={9} fill={colorOf(i)} fontWeight={700}>
                   C{i + 1}
                 </text>
               </g>
-            ),
-          )}
+            );
+          })}
+
+        {prefs.dates &&
+          series.map((s, i) => {
+            if (s.grantMs < view.xMin || s.grantMs > view.xMax) return null;
+            const gx = xOf(s.grantMs);
+            // a little pen, tip on the grant date, tilted ~12° off vertical
+            const pen = `M ${gx} ${M_APEX} L ${(gx - 2).toFixed(1)} ${M_APEX + 4} L ${(gx - 2).toFixed(1)} ${M_APEX + 13} L ${(gx - 1).toFixed(1)} ${M_APEX + PEN_LEN} L ${(gx + 1).toFixed(1)} ${M_APEX + PEN_LEN} L ${(gx + 2).toFixed(1)} ${M_APEX + 13} L ${(gx + 2).toFixed(1)} ${M_APEX + 4} Z`;
+            return (
+              <g key={"gd" + s.id}>
+                <g transform={`rotate(12 ${gx} ${M_APEX})`}>
+                  <path d={pen} fill={colorOf(i)} stroke="var(--bg2)" strokeWidth={0.6} />
+                  <line
+                    x1={(gx - 2).toFixed(1)}
+                    y1={M_APEX + 6}
+                    x2={(gx + 2).toFixed(1)}
+                    y2={M_APEX + 6}
+                    stroke="#fff"
+                    strokeWidth={0.8}
+                  />
+                </g>
+                <text x={gx} y={M_GLETTER} textAnchor="middle" fontSize={9} fill={colorOf(i)} fontWeight={700}>
+                  G{i + 1}
+                </text>
+              </g>
+            );
+          })}
 
         {todayX != null && (
           <>
@@ -636,14 +827,28 @@ export default function VestingChart({
           </>
         )}
 
-        {hi != null && shown.length > 0 && (
+        {boxRect && drag?.kind === "box" && (
+          <rect
+            x={boxRect.x}
+            y={boxRect.y}
+            width={boxRect.w}
+            height={boxRect.h}
+            fill="var(--accent)"
+            fillOpacity={0.12}
+            stroke="var(--accent)"
+            strokeDasharray="4 3"
+            strokeWidth={1}
+          />
+        )}
+
+        {hi != null && shown.length > 0 && !boxMode && (
           <>
             <line x1={xOf(times[hi])} y1={padT} x2={xOf(times[hi])} y2={padT + plotH} stroke="var(--muted)" strokeWidth={1} opacity={0.4} />
             {shown.map((c, i) => (
               <circle key={i} cx={xOf(times[hi])} cy={c.y} r={4} fill={c.color} stroke="var(--bg2)" strokeWidth={2} />
             ))}
             {(() => {
-              const boxW = 188;
+              const boxW = shown.some((c) => c.evt) ? 236 : 188;
               const rowH = 16;
               const boxH = shown.length * rowH + 20;
               const tx = clamp(xOf(times[hi]), padL + boxW / 2, W - padR - boxW / 2);
@@ -663,6 +868,11 @@ export default function VestingChart({
                         <rect x={left + 10} y={ry - 8} width={9} height={9} rx={2} fill={c.color === "var(--ink)" ? "#fff" : c.color} />
                         <text x={left + 25} y={ry} fontSize={11} fill="#fff" fontWeight={c.name === "Total" ? 700 : 500}>
                           {c.name}
+                          {c.evt ? (
+                            <tspan fill="#eac27a" fontStyle="italic" fontWeight={600}>
+                              {"  " + c.evt}
+                            </tspan>
+                          ) : null}
                         </text>
                         <text x={left + boxW - 10} y={ry} textAnchor="end" fontSize={11} fill="#fff">
                           {fmtNum(c.value)} · {pct}%
@@ -681,7 +891,7 @@ export default function VestingChart({
       </svg>
 
       <p style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-        Drag the plot to pan · drag the bottom axis (↔) to zoom time · drag the left axis (↕) to zoom value — it zooms around the cursor · double-click to reset.
+        Drag the plot to pan · drag the bottom axis (↔) to zoom time · drag the left axis (↕) to zoom value (around the cursor) · <strong>Box zoom</strong> then drag a rectangle · double-click to reset.
       </p>
     </div>
   );
