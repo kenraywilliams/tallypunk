@@ -451,8 +451,9 @@ export default function VestingChart({
       let bmd = Infinity;
       for (const s of series) {
         const marks: number[] = [];
+        // only grant pens are hoverable here — the cliff is already obvious on
+        // the chart (the first step), so its icon isn't a hover point
         if (prefs.dates) marks.push(s.grantMs);
-        if (prefs.cliffs && s.cliffMs != null) marks.push(s.cliffMs);
         for (const ms of marks) {
           if (ms < view.xMin || ms > view.xMax) continue;
           const d = Math.abs(xOf(ms) - sx);
@@ -480,10 +481,16 @@ export default function VestingChart({
       setHi(null);
       return;
     }
+    const eventSet = new Set<number>();
+    for (const s of series) {
+      eventSet.add(s.grantMs);
+      if (s.cliffMs != null) eventSet.add(s.cliffMs);
+    }
     let best = 0;
     let bd = Infinity;
     for (let i = 0; i < times.length; i++) {
-      const d = Math.abs(xOf(times[i]) - sx);
+      let d = Math.abs(xOf(times[i]) - sx);
+      if (eventSet.has(times[i])) d -= 10; // gravity: cliff/grant dates win near-ties
       if (d < bd) {
         bd = d;
         best = i;
@@ -506,23 +513,18 @@ export default function VestingChart({
   };
   let shown: Cand[] = [];
   if (hi != null && !drag && gutter) {
-    // hovering a marker in the gutter → show just that grant (granted/cliffed)
+    // hovering a grant pen in the gutter → show just that grant, granted
     const tHi = times[hi];
     const cands: Cand[] = [];
     series.forEach((s, idx) => {
-      const isG = prefs.dates && s.grantMs === tHi;
-      const isC = prefs.cliffs && s.cliffMs === tHi;
-      if (!isG && !isC) return;
-      const parts: string[] = [];
-      if (isG) parts.push("granted");
-      if (isC) parts.push("cliffed");
+      if (s.grantMs !== tHi) return;
       cands.push({
         name: s.label,
         value: s.values[hi],
         denom: s.quantity,
         color: colorOf(idx),
         y: yOf(s.values[hi]),
-        evt: parts.join(" · "),
+        evt: "granted",
       });
     });
     shown = cands.sort((a, b) => a.y - b.y).slice(0, 4);
@@ -581,11 +583,10 @@ export default function VestingChart({
         }
         shown = [best];
       }
-      // drop 0%/pre-cliff grants with no event — they only clutter the tag
-      const meaningful = shown.filter(
-        (c) => c.name === "Total" || !!c.evt || c.value > 0,
-      );
-      shown = (meaningful.length ? meaningful : shown.slice(0, 1))
+      // drop 0%/pre-cliff grants with no event — they only clutter the tag.
+      // if nothing meaningful is left, show no tag at all.
+      shown = shown
+        .filter((c) => c.name === "Total" || !!c.evt || c.value > 0)
         .sort((a, b) => a.y - b.y)
         .slice(0, 4);
     }

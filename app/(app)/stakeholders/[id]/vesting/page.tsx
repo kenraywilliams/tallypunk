@@ -127,6 +127,13 @@ export default function StakeholderVestingPage() {
   // something. These land on flat treads (value unchanged), so the steps are
   // untouched — they're purely extra tag targets.
   const MAX_GAP = 34 * DAY; // ≈ one month
+  const NEAR_EVENT = 8 * DAY; // don't drop a catch-point right next to a real event
+  const events: number[] = [];
+  meta.forEach((m) => {
+    events.push(m.grantMs);
+    if (m.cliffMs != null) events.push(m.cliffMs);
+  });
+  const nearEvent = (t: number) => events.some((e) => Math.abs(e - t) < NEAR_EVENT);
   const times: number[] = [];
   for (let i = 0; i < rawTimes.length; i++) {
     times.push(rawTimes[i]);
@@ -134,7 +141,10 @@ export default function StakeholderVestingPage() {
       const a = rawTimes[i];
       const L = rawTimes[i + 1] - a;
       const n = Math.max(0, Math.ceil(L / MAX_GAP) - 1);
-      for (let k = 1; k <= n; k++) times.push(Math.round(a + (L * k) / (n + 1)));
+      for (let k = 1; k <= n; k++) {
+        const t = Math.round(a + (L * k) / (n + 1));
+        if (!nearEvent(t)) times.push(t); // never crowd a grant/cliff date
+      }
     }
   }
 
