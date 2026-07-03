@@ -9,7 +9,8 @@ TallyPunk is an equity / cap-table / option-pool / vesting tracker — a simpler
 This project is built in a **hybrid workflow**: fast UI iteration happens in Claude "cowork" mode; backend work, builds/tests, and commits happen here in Claude Code. Keep the two in sync through this file + `docs/`.
 
 ## Read first
-- `docs/TallyPunk-Requirements-Tracker.md` — the living, numbered requirements list (e.g. POOL-03, STK-04, GBL-08). **Single source of truth for scope** — every decision is captured here; add to it when scope changes.
+- **`docs/TallyPunk-Handoff.md` — READ THIS FIRST.** Session handoff & onboarding: current built-vs-pending state, the non-obvious quirks (CSS caching, `.app` scoping, mount staleness, commit flow), the vesting-chart tuning constants, open decisions, and a start-of-session checklist. Points out what to **re-validate against the code**.
+- `docs/TallyPunk-Requirements-Tracker.md` — the living, numbered requirements list (e.g. POOL-03, STK-04, GBL-08). **Single source of truth for scope** — every decision is captured here; add to it when scope changes. NOTE: canonical copy lives in Drive (`E:\GOOGLE DRIVE STORE\Claude\tallypunk\`); the repo copy is a sync — re-sync before Claude Code work.
 - `docs/TallyPunk-Tech-and-Hosting-Primer.md` — stack / security / hosting rationale + a plain-English glossary.
 - `docs/TallyPunk-Build-Plan.md` — build order + getting-started runbook.
 - `docs/TallyPunk-Smoke-Checklist.md` — the manual regression checklist. Run the relevant part before each commit; add a line for every new flow.
@@ -17,14 +18,15 @@ This project is built in a **hybrid workflow**: fast UI iteration happens in Cla
 ## Stack
 Next.js 16 (App Router, Turbopack) · React 19 · TypeScript · Tailwind v4 (`@import "tailwindcss"`). Planned backend: Postgres via Prisma; managed hosting (Vercel/Render — "Option A"); auth TBD. No Docker required.
 
-## What exists (Jun 2026)
-- Branded **landing page** (`app/page.tsx`) from the brand mockup.
-- A no-signup browser **sandbox** product under `app/(app)/` — `/dashboard`, `/pools`, `/companies`, `/stakeholders`, plus placeholder routes.
-- **Pools**, **Companies**, **Stakeholders** modules: create / view / edit, per-object **History** logs, company↔pool linking.
-- **Stakeholders** is a sub-section: a ribbon (List · Detail · Grants · Vesting · History) with full-page nested routes under `app/(app)/stakeholders/[id]/`, a persistent scrollable left name-list (sort by first/surname, wrap-around Back/Next), configurable + sortable columns, and sequential display IDs.
+## What exists (updated Jul 2026 — see docs/TallyPunk-Handoff.md for detail)
+- Branded **landing page** (`app/page.tsx`).
+- No-signup browser **sandbox** under `app/(app)/` — `/dashboard`, `/pools`, `/companies`, `/stakeholders`, `/grants`, plus placeholders.
+- **Pools**, **Companies**, **Stakeholders** modules: create / view / edit, per-object **History** logs, company↔pool linking, power-list columns.
+- **Stakeholders** sub-section: ribbon (List · Profile · Grants · Vesting · History/Audit · Reports) as nested routes under `stakeholders/[id]/`, persistent left Roster list, sequential display IDs.
+- **Grants** (`grants/`): `GrantDialog` (typeable pickers, inline create-pool, capacity guard) + the **step-function vesting engine** (`vesting.ts`) + a rich interactive **VestingChart.tsx** (multi-series, sandchart, gutter markers, drag/box zoom, hover tags).
 
-## Not built yet (the backend phase — likely your work)
-Grants, vesting math, Trash/soft-delete (GBL-03), CSV Import/Export, auth (SEC-01), and the **real database** (swap localStorage → Prisma/Postgres behind the existing data-layer seam). Next feature up is **Grants** (GRANT-01..04; field shortlist: stakeholder, optional pool, quantity, grant date, vesting schedule, strike price — totals are derived).
+## Not built yet (likely your work)
+**Terminate vesting (GRANT-16), Pause (GRANT-17), stakeholder rollup (GRANT-18), rate-change (GRANT-14); Delete cascade (GBL-09) + General Pool (POOL-09); Trash (GBL-03, future).** Then smaller items (GRANT-09/11/15, STK-05, POOL-07/08) and the backend phase: real DB (swap localStorage → Prisma/Postgres behind the data-layer seam), auth (SEC-01), CSV import/export. **Read the Handoff + Tracker before starting** — the vesting model was rebuilt to a step function and the terminate/pause/delete rules are fully specced.
 
 ## Architecture & conventions — please follow
 - **Swappable data layer (ARCH-01).** ALL app state flows through `app/(app)/SandboxProvider.tsx` — a React context backed by localStorage (key `tallypunk-sandbox-v1`). The UI never touches storage directly. The plan is to swap this `DataSource` for an API→Postgres layer for logged-in users **without rewriting the UI**. Preserve this seam; don't scatter `localStorage`/`fetch` through components.
