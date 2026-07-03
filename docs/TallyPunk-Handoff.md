@@ -99,8 +99,8 @@ All in `grants/VestingChart.tsx` unless noted. These are the dials Mate keeps as
 | Y cap / min | `yCap = totalGranted*3`; `minYW = max(1, totalGranted*0.005)` |
 | Default Y headroom | `yMax = totalGranted*1.2` (set in **`stakeholders/[id]/vesting/page.tsx`**) |
 | Axis-zoom sensitivity | `Math.pow(2, ±dSvg/(plot*0.6))` — the `0.6` is the feel constant |
-| Hover "gravity" | event dates get `-10` px in the nearest-point search |
-| Marker snap | within `12` px of a pen; zone = below axis **or** `sy > padT+plotH-16` (just above) |
+| Hover "gravity" | grant/cliff dates get `-10` px in the nearest-point search; terminate/pause/resume dates only `-2` (soft — must not steal the cursor from nearby series) |
+| Marker snap | within `12` px; pens snap below axis **or** `sy > padT+plotH-16` (just above); **termination flags snap below the axis only**, and their tag anchors at the axis (not the series line) |
 | "Near" tooltip band | `|c.y - hy| <= 14` px |
 | Tooltip box width | `188` (or `236` when an event word shows) |
 | Event word colour | `#eac27a` (gold, italic) on the dark tooltip |

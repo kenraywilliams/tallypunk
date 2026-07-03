@@ -32,6 +32,22 @@ export interface Tranche {
   percent: number;
 }
 
+// Lifecycle events (GRANT-16/17) — layered ON TOP of the schedule as a
+// transform of the generated tranches; the base engine stays untouched.
+// Rules (locked in the tracker):
+// - Terminate: tranches strictly BEFORE the date keep; a tranche exactly ON
+//   the termination date does NOT vest (exclusive). Reversible.
+// - Pause with an end: every tranche on/after pauseStart is delayed by the
+//   pause length ("shift the tail") — still reaches 100%, just later.
+// - Pause without an end: suspended — flat from pauseStart, resumable.
+// - Pause and Terminate may coexist (decision 3 Jul 2026): pause shifts
+//   first, then the termination cut applies to the shifted dates.
+export interface Lifecycle {
+  terminationDate?: string | null;
+  pauseStart?: string | null;
+  pauseEnd?: string | null;
+}
+
 export const FREQS: { value: Freq; label: string; perYear: number }[] = [
   { value: "yearly", label: "Yearly", perYear: 1 },
   { value: "quarterly", label: "Quarterly", perYear: 4 },
@@ -73,6 +89,37 @@ export function todayISO(): string {
   return iso(new Date());
 }
 
+function daysBetween(a: string, b: string): number {
+  return Math.round((toDate(b).getTime() - toDate(a).getTime()) / 86400000);
+}
+
+// Apply pause (shift/suspend) then termination (cut) to generated tranches.
+export function applyLifecycle(
+  tranches: Tranche[],
+  lc?: Lifecycle | null,
+): Tranche[] {
+  if (!lc) return tranches;
+  let out = tranches;
+  const ps = lc.pauseStart || null;
+  const pe = lc.pauseEnd || null;
+  if (ps) {
+    if (pe && pe >= ps) {
+      const shift = daysBetween(ps, pe);
+      if (shift > 0)
+        out = out.map((t) =>
+          t.date >= ps ? { ...t, date: addDays(t.date, shift) } : t,
+        );
+    } else if (!pe) {
+      // open-ended pause: everything from the start is suspended (resumable)
+      out = out.filter((t) => t.date < ps);
+    }
+    // pe < ps is invalid — the UI blocks it; the engine ignores the pause
+  }
+  const td = lc.terminationDate || null;
+  if (td) out = out.filter((t) => t.date < td); // exclusive termination day
+  return out;
+}
+
 export function sumPercents(v: Vesting): number {
   const arr =
     v.mode === "normal" ? v.annualPercents : v.tranches.map((t) => t.percent);
@@ -87,6 +134,24 @@ export function isComplete(v: Vesting): boolean {
 // The cliff date = grant date + cliff. Payout is gated until this date.
 export function cliffDate(v: NormalVesting, grantDate: string): string {
   return addMonths(grantDate, v.cliff.years * 12 + v.cliff.months);
+}
+
+// Cliff date after the pause shift (GRANT-17): a pause starting on/before the
+// cliff delays it by the pause length (the boom tranche shifts identically in
+// applyLifecycle, so marker and step stay glued). Open-ended pause before the
+// cliff → null (no date until resumed). Termination doesn't move the cliff.
+export function effectiveCliffDate(
+  v: NormalVesting,
+  grantDate: string,
+  lc?: Lifecycle | null,
+): string | null {
+  const base = cliffDate(v, grantDate);
+  const ps = lc?.pauseStart || null;
+  if (!ps || base < ps) return base;
+  const pe = lc?.pauseEnd || null;
+  if (!pe) return null;
+  if (pe < ps) return base; // invalid pause — engine ignores it too
+  return addDays(base, daysBetween(ps, pe));
 }
 
 // Continuous "earned" % by `asOf` (ignores the cliff gate): the schedule laid
@@ -115,12 +180,20 @@ function accruedPct(
 
 // Concrete step tranches: a catch-up "boom" at the cliff date (everything earned
 // up to then), then one tranche per frequency step until the period end.
-export function generateTranches(v: Vesting, grantDate: string): Tranche[] {
+// Pass `lc` to get the EFFECTIVE tranches after terminate/pause (GRANT-16/17).
+export function generateTranches(
+  v: Vesting,
+  grantDate: string,
+  lc?: Lifecycle | null,
+): Tranche[] {
   if (v.mode === "advanced") {
-    return v.tranches
-      .filter((t) => t.date)
-      .map((t) => ({ date: t.date, percent: Number(t.percent) || 0 }))
-      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    return applyLifecycle(
+      v.tranches
+        .filter((t) => t.date)
+        .map((t) => ({ date: t.date, percent: Number(t.percent) || 0 }))
+        .sort((a, b) => (a.date < b.date ? -1 : 1)),
+      lc,
+    );
   }
   const N = v.annualPercents.length;
   if (N === 0) return [];
@@ -145,7 +218,7 @@ export function generateTranches(v: Vesting, grantDate: string): Tranche[] {
     prevAcc = acc;
     if (stop) break;
   }
-  return out;
+  return applyLifecycle(out, lc);
 }
 
 // Cumulative fraction (0..1) vested by `asOf` — the STEP model: Σ tranche % ≤ asOf.
@@ -153,8 +226,9 @@ export function vestedFraction(
   v: Vesting,
   grantDate: string,
   asOf: string,
+  lc?: Lifecycle | null,
 ): number {
-  const tr = generateTranches(v, grantDate);
+  const tr = generateTranches(v, grantDate, lc);
   const pct = tr
     .filter((t) => t.date <= asOf)
     .reduce((a, t) => a + (Number(t.percent) || 0), 0);
@@ -166,20 +240,58 @@ export function vestedUnits(
   v: Vesting,
   grantDate: string,
   asOf: string,
+  lc?: Lifecycle | null,
 ): number {
-  return Math.floor(quantity * vestedFraction(v, grantDate, asOf));
+  return Math.floor(quantity * vestedFraction(v, grantDate, asOf, lc));
 }
 
-export function fullyVestedDate(v: Vesting, grantDate: string): string | null {
-  if (v.mode === "advanced") {
-    const ds = v.tranches
-      .filter((t) => t.date)
-      .map((t) => t.date)
-      .sort();
-    return ds.length ? ds[ds.length - 1] : null;
+// Fraction (0..1) that will EVER vest given the lifecycle — <1 when terminated
+// early (the rest is forfeited); 0 for an open-ended pause that started
+// pre-cliff... i.e. Σ of all effective tranches.
+export function lifetimeVestedFraction(
+  v: Vesting,
+  grantDate: string,
+  lc?: Lifecycle | null,
+): number {
+  const pct = generateTranches(v, grantDate, lc).reduce(
+    (a, t) => a + (Number(t.percent) || 0),
+    0,
+  );
+  return Math.max(0, Math.min(1, pct / 100));
+}
+
+// Units a grant still RESERVES in its pool (GRANT-16 pool side-effects):
+// terminated → only what actually vests (the forfeited rest returns to the
+// pool); paused or active → the full quantity stays reserved.
+export function reservedUnits(
+  quantity: number,
+  v: Vesting,
+  grantDate: string,
+  lc?: Lifecycle | null,
+): number {
+  if (!lc?.terminationDate) return quantity || 0;
+  return Math.floor((quantity || 0) * lifetimeVestedFraction(v, grantDate, lc));
+}
+
+// Scheduled full-vest date. Applies the PAUSE delay (a shifted tail pushes
+// this out; an open-ended pause → null "suspended") but NOT termination —
+// a terminated grant never completes, which the UI states explicitly.
+export function fullyVestedDate(
+  v: Vesting,
+  grantDate: string,
+  lc?: Lifecycle | null,
+): string | null {
+  const pauseOnly: Lifecycle | undefined = lc?.pauseStart
+    ? { pauseStart: lc.pauseStart, pauseEnd: lc.pauseEnd }
+    : undefined;
+  if (pauseOnly?.pauseStart && !pauseOnly.pauseEnd) {
+    // open-ended pause: if the pause began before the schedule finished,
+    // there is no completion date until it's resumed
+    const base = fullyVestedDate(v, grantDate);
+    if (base != null && pauseOnly.pauseStart <= base) return null;
   }
-  if (v.annualPercents.length === 0) return null;
-  return addMonths(grantDate, v.annualPercents.length * 12);
+  const tr = generateTranches(v, grantDate, pauseOnly);
+  return tr.length ? tr[tr.length - 1].date : null;
 }
 
 // Default when creating a grant: 4-year period, 1-year cliff, even 25% per year,

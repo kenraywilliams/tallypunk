@@ -12,6 +12,8 @@ import {
   evenPercents,
   fullyVestedDate,
   isComplete,
+  lifetimeVestedFraction,
+  reservedUnits,
   sumPercents,
   todayISO,
   vestedFraction,
@@ -20,6 +22,37 @@ import {
 } from "./vesting";
 
 export const gid = (seq: number) => String(seq).padStart(7, "0");
+
+// ---- grant lifecycle status (GRANT-16/17) — shared with the list pages ----
+export type GrantStatus = "active" | "paused" | "terminated";
+export const grantStatus = (g: {
+  terminationDate: string | null;
+  pauseStart: string | null;
+}): GrantStatus =>
+  g.terminationDate ? "terminated" : g.pauseStart ? "paused" : "active";
+
+export function StatusChip({ status }: { status: GrantStatus }) {
+  if (status === "active") return null;
+  const c =
+    status === "terminated"
+      ? { bg: "#f6e2e0", fg: "#b23b3b" }
+      : { bg: "#f3ead9", fg: "#8a6a33" };
+  return (
+    <span
+      style={{
+        background: c.bg,
+        color: c.fg,
+        borderRadius: 999,
+        padding: "2px 9px",
+        fontSize: 11,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {status === "terminated" ? "Terminated" : "Paused"}
+    </span>
+  );
+}
 const QTY_MAX = 13;
 const num = (s: string) => Number(s.replace(/[^\d.]/g, "") || 0);
 const int = (s: string) => Math.floor(num(s));
@@ -136,7 +169,7 @@ const optBase: CSSProperties = {
 };
 
 export default function GrantDialog({
-  grant,
+  grant: grantProp,
   startEdit,
   presetStakeholderId,
   onClose,
@@ -146,8 +179,22 @@ export default function GrantDialog({
   presetStakeholderId?: string;
   onClose: () => void;
 }) {
-  const { stakeholders, pools, grantedFor, addGrant, updateGrant, notify } =
-    useSandbox();
+  const {
+    stakeholders,
+    pools,
+    grants,
+    grantedFor,
+    addGrant,
+    updateGrant,
+    notify,
+  } = useSandbox();
+  // The prop is a SNAPSHOT taken when the row was clicked. After a lifecycle
+  // action (terminate/pause/resume) the provider updates but the snapshot
+  // doesn't — so banners/buttons/dates went stale until close+reopen. Always
+  // render the live grant from context instead.
+  const grant = grantProp
+    ? (grants.find((g) => g.id === grantProp.id) ?? grantProp)
+    : undefined;
   const [editing, setEditing] = useState(grant ? !!startEdit : true);
   const [stakeholderId, setStakeholderId] = useState(
     grant?.stakeholderId ?? presetStakeholderId ?? "",
@@ -164,6 +211,14 @@ export default function GrantDialog({
   const [poolOpen, setPoolOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [periodDraft, setPeriodDraft] = useState<string | null>(null);
+
+  // ---- lifecycle (GRANT-16/17) — view-mode panels ----
+  const [panel, setPanel] = useState<null | "terminate" | "pause" | "unterminate">(
+    null,
+  );
+  const [termDraft, setTermDraft] = useState(todayISO());
+  const [psDraft, setPsDraft] = useState(grant?.pauseStart ?? todayISO());
+  const [peDraft, setPeDraft] = useState(grant?.pauseEnd ?? "");
 
   const sh = (id: string) => stakeholders.find((s) => s.id === id);
   const poolName = (id: string | null) =>
@@ -315,9 +370,9 @@ export default function GrantDialog({
 
   const total = sumPercents(vesting);
   const complete = isComplete(vesting);
-  const fvd = fullyVestedDate(vesting, grantDate);
+  const fvd = fullyVestedDate(vesting, grantDate, grant);
   const vestedNow = Math.round(
-    vestedFraction(vesting, grantDate, todayISO()) * 100,
+    vestedFraction(vesting, grantDate, todayISO(), grant) * 100,
   );
   const valid =
     !!stakeholderId && Number(qty) > 0 && complete && !overCapacity;
@@ -339,6 +394,10 @@ export default function GrantDialog({
       grantDate,
       strike: strike ? Number(strike) : null,
       vesting,
+      // lifecycle is managed from view mode (GRANT-16/17), untouched here
+      terminationDate: grant?.terminationDate ?? null,
+      pauseStart: grant?.pauseStart ?? null,
+      pauseEnd: grant?.pauseEnd ?? null,
     };
     if (grant) {
       updateGrant(grant.id, payload);
@@ -350,6 +409,118 @@ export default function GrantDialog({
       onClose();
     }
   };
+
+  // ---- lifecycle actions (view mode only) ----
+  const grantPool = grant?.poolId
+    ? (pools.find((p) => p.id === grant.poolId) ?? null)
+    : null;
+  const lifetimeFrac = grant
+    ? lifetimeVestedFraction(grant.vesting, grant.grantDate, grant)
+    : 1;
+
+  // Terminate preview for the drafted date (termination day itself excluded)
+  const termPreview = grant
+    ? (() => {
+        const lc = {
+          terminationDate: termDraft,
+          pauseStart: grant.pauseStart,
+          pauseEnd: grant.pauseEnd,
+        };
+        const keep = reservedUnits(grant.quantity, grant.vesting, grant.grantDate, lc);
+        return { keep, returned: grant.quantity - keep };
+      })()
+    : { keep: 0, returned: 0 };
+
+  const doTerminate = () => {
+    if (!grant || !termDraft) return;
+    updateGrant(grant.id, { terminationDate: termDraft });
+    notify(
+      grantPool && termPreview.returned > 0
+        ? `Vesting terminated — ${termPreview.returned.toLocaleString()} units returned to ${grantPool.name}`
+        : "Vesting terminated",
+    );
+    setPanel(null);
+  };
+
+  // Un-terminate re-reserves the returned units — blocked if the pool can no
+  // longer supply them (GRANT-16). Returns how many units short, 0 = fine.
+  const unterminateShort = (() => {
+    if (!grant || !grant.terminationDate || !grantPool || grantPool.quantity == null)
+      return 0;
+    const delta =
+      grant.quantity -
+      reservedUnits(grant.quantity, grant.vesting, grant.grantDate, grant);
+    const remaining = grantPool.quantity - grantedFor(grantPool.id);
+    return delta > remaining ? delta - remaining : 0;
+  })();
+
+  const doUnterminate = () => {
+    if (!grant || unterminateShort > 0) return;
+    updateGrant(grant.id, { terminationDate: null });
+    notify("Termination removed — scheduled vesting resumes");
+    setPanel(null);
+  };
+
+  const pauseInvalid = !psDraft || (!!peDraft && peDraft < psDraft);
+  const doPause = () => {
+    if (!grant || pauseInvalid) return;
+    updateGrant(grant.id, { pauseStart: psDraft, pauseEnd: peDraft || null });
+    notify(
+      grantPool
+        ? `Vesting paused — units stay reserved in ${grantPool.name}`
+        : "Vesting paused",
+    );
+    setPanel(null);
+  };
+
+  const doRemovePause = () => {
+    if (!grant) return;
+    updateGrant(grant.id, { pauseStart: null, pauseEnd: null });
+    notify("Pause removed — schedule recomputed");
+    setPanel(null);
+  };
+
+  // Lifecycle banners — shown in BOTH view and edit modes so a terminated /
+  // paused grant is never mistaken for an active one mid-edit.
+  const lifecycleBanners = grant ? (
+    <>
+      {grant.terminationDate && (
+        <div
+          style={{
+            background: "#f6e2e0",
+            color: "#b23b3b",
+            borderRadius: 10,
+            padding: "10px 14px",
+            fontSize: 13.5,
+            fontWeight: 600,
+            marginBottom: 8,
+          }}
+        >
+          Vesting terminated from {grant.terminationDate} — vested before that
+          date stays vested; the rest is forfeited
+          {grantPool ? ` (returned to ${grantPool.name})` : ""}.
+        </div>
+      )}
+      {grant.pauseStart && (
+        <div
+          style={{
+            background: "#f3ead9",
+            color: "#8a6a33",
+            borderRadius: 10,
+            padding: "10px 14px",
+            fontSize: 13.5,
+            fontWeight: 600,
+            marginBottom: 8,
+          }}
+        >
+          {grant.pauseEnd
+            ? `Vesting paused ${grant.pauseStart} → ${grant.pauseEnd} — the schedule shifts by the pause length.`
+            : `Vesting paused since ${grant.pauseStart} (open-ended) — flat until resumed.`}{" "}
+          Units stay reserved in the pool.
+        </div>
+      )}
+    </>
+  ) : null;
 
   const title = grant
     ? editing
@@ -370,6 +541,7 @@ export default function GrantDialog({
     <Modal title={title} onClose={onClose} lg dismissable={!!grant && !editing}>
       {editing ? (
         <>
+          {lifecycleBanners}
           <div
             style={{
               display: "grid",
@@ -804,6 +976,7 @@ export default function GrantDialog({
         </>
       ) : grant ? (
         <>
+          {lifecycleBanners}
           <div className="vrow">
             <span className="vlab">Stakeholder</span>
             <span className="vval">
@@ -838,24 +1011,217 @@ export default function GrantDialog({
               {vestedNow}% ·{" "}
               {Math.floor(
                 grant.quantity *
-                  vestedFraction(grant.vesting, grant.grantDate, todayISO()),
+                  vestedFraction(
+                    grant.vesting,
+                    grant.grantDate,
+                    todayISO(),
+                    grant,
+                  ),
               ).toLocaleString()}
             </span>
           </div>
+          {grant.terminationDate && (
+            <div className="vrow">
+              <span className="vlab">Forfeited</span>
+              <span className="vval">
+                {(
+                  grant.quantity -
+                  reservedUnits(
+                    grant.quantity,
+                    grant.vesting,
+                    grant.grantDate,
+                    grant,
+                  )
+                ).toLocaleString()}
+              </span>
+            </div>
+          )}
           <div className="vrow">
             <span className="vlab">Fully vested</span>
-            <span className="vval">{fvd ?? "—"}</span>
+            <span className="vval">
+              {grant.terminationDate && lifetimeFrac < 1 ? (
+                <span className="muted-cell">— vesting terminated</span>
+              ) : (
+                (fvd ?? <span className="muted-cell">— vesting paused</span>)
+              )}
+            </span>
           </div>
           <div className="created-foot">
             Created {new Date(grant.createdAt).toLocaleString()} by{" "}
             {grant.createdBy}
           </div>
-          <div className="modal-actions">
-            <span style={{ flex: 1 }} />
-            <button className="btn btn-pri" onClick={() => setEditing(true)}>
-              Edit
-            </button>
-          </div>
+
+          {/* ---- lifecycle panels (GRANT-16/17) ---- */}
+          {panel === "terminate" && (
+            <div style={boxS}>
+              <label className="lab">Terminate vesting from</label>
+              <div style={rowS}>
+                <input
+                  className="inp"
+                  type="date"
+                  style={{ flex: 1, minWidth: 0 }}
+                  value={termDraft}
+                  onChange={(e) => setTermDraft(e.target.value)}
+                />
+              </div>
+              <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
+                Vesting stops from this date — a tranche landing exactly on it
+                does <strong>not</strong> vest.{" "}
+                {termPreview.keep === 0 ? (
+                  <strong>Before the cliff: nothing vested — all{" "}
+                  {grant.quantity.toLocaleString()} units forfeited.</strong>
+                ) : termPreview.returned === 0 ? (
+                  <strong>Already fully vested by this date — terminating has
+                  no effect.</strong>
+                ) : (
+                  <>
+                    Keeps <strong>{termPreview.keep.toLocaleString()}</strong>{" "}
+                    vested; forfeits{" "}
+                    <strong>{termPreview.returned.toLocaleString()}</strong>
+                    {grantPool ? ` (returned to ${grantPool.name})` : ""}.
+                  </>
+                )}{" "}
+                Reversible — you can un-terminate later.
+              </p>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setPanel(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-pri"
+                  disabled={!termDraft}
+                  onClick={doTerminate}
+                >
+                  Terminate vesting
+                </button>
+              </div>
+            </div>
+          )}
+
+          {panel === "unterminate" && (
+            <div style={boxS}>
+              <p style={{ fontSize: 12.5, color: "var(--muted)", margin: 0 }}>
+                <strong>All previously-scheduled vesting will resume</strong> —
+                use <strong>Pause vesting</strong> instead if you want a
+                temporary hold.
+                {grantPool
+                  ? unterminateShort > 0
+                    ? ` Blocked: ${grantPool.name} is ${unterminateShort.toLocaleString()} units short of re-reserving this grant (units were re-granted meanwhile). Free up capacity or expand the pool first.`
+                    : ` The forfeited units will be re-reserved in ${grantPool.name}.`
+                  : ""}
+              </p>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setPanel(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-pri"
+                  disabled={unterminateShort > 0}
+                  onClick={doUnterminate}
+                >
+                  Resume vesting
+                </button>
+              </div>
+            </div>
+          )}
+
+          {panel === "pause" && (
+            <div style={boxS}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <label className="lab">Pause from</label>
+                  <input
+                    className="inp"
+                    type="date"
+                    value={psDraft}
+                    onChange={(e) => setPsDraft(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="lab">Until (optional)</label>
+                  <input
+                    className="inp"
+                    type="date"
+                    value={peDraft}
+                    onChange={(e) => setPeDraft(e.target.value)}
+                  />
+                </div>
+              </div>
+              <p style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 10 }}>
+                {peDraft
+                  ? "Every vesting date from the pause start shifts by the pause length — the grant still reaches 100%, just later."
+                  : "Without an end date, vesting freezes until you resume (add an end date later and the schedule recomputes)."}{" "}
+                Units <strong>stay reserved</strong> in the pool — pausing
+                returns nothing (unlike Terminate).
+                {peDraft && peDraft < psDraft && (
+                  <strong style={{ color: "#b23b3b" }}>
+                    {" "}
+                    End date is before the start.
+                  </strong>
+                )}
+              </p>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setPanel(null)}>
+                  Cancel
+                </button>
+                {grant.pauseStart && (
+                  <button className="btn btn-ghost" onClick={doRemovePause}>
+                    Remove pause
+                  </button>
+                )}
+                <button
+                  className="btn btn-pri"
+                  disabled={pauseInvalid}
+                  onClick={doPause}
+                >
+                  {grant.pauseStart ? "Update pause" : "Pause vesting"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {panel === null && (
+            <div className="modal-actions">
+              {grant.terminationDate ? (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setPanel("unterminate")}
+                >
+                  Un-terminate…
+                </button>
+              ) : (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setTermDraft(todayISO());
+                    setPanel("terminate");
+                  }}
+                >
+                  Terminate vesting…
+                </button>
+              )}
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setPsDraft(grant.pauseStart ?? todayISO());
+                  setPeDraft(grant.pauseEnd ?? "");
+                  setPanel("pause");
+                }}
+              >
+                {grant.pauseStart ? "Edit pause…" : "Pause vesting…"}
+              </button>
+              <span style={{ flex: 1 }} />
+              <button className="btn btn-pri" onClick={() => setEditing(true)}>
+                Edit
+              </button>
+            </div>
+          )}
         </>
       ) : null}
 

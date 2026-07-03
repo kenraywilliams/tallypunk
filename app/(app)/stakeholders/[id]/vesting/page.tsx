@@ -4,7 +4,7 @@ import { useParams } from "next/navigation";
 import { useSandbox } from "../../../SandboxProvider";
 import VestingChart, { type GrantSeries } from "../../../grants/VestingChart";
 import {
-  cliffDate,
+  effectiveCliffDate,
   fullyVestedDate,
   generateTranches,
   todayISO,
@@ -63,7 +63,7 @@ export default function StakeholderVestingPage() {
   const todayMs = toMs(today);
   const totalGranted = grants.reduce((s, g) => s + g.quantity, 0);
   const vestedToday = grants.reduce(
-    (s, g) => s + vestedUnits(g.quantity, g.vesting, g.grantDate, today),
+    (s, g) => s + vestedUnits(g.quantity, g.vesting, g.grantDate, today, g),
     0,
   );
   const unvested = Math.max(0, totalGranted - vestedToday);
@@ -71,16 +71,30 @@ export default function StakeholderVestingPage() {
     totalGranted > 0 ? Math.round((vestedToday / totalGranted) * 100) : 0;
 
   const meta = grants.map((g, i) => {
-    const fv = fullyVestedDate(g.vesting, g.grantDate);
+    // pause-aware scheduled completion; termination handled via termMs below
+    const fv = fullyVestedDate(g.vesting, g.grantDate, g);
+    const grantMs = toMs(g.grantDate);
+    const termMs = g.terminationDate ? toMs(g.terminationDate) : null;
+    const pauseStartMs = g.pauseStart ? toMs(g.pauseStart) : null;
+    const pauseEndMs = g.pauseEnd ? toMs(g.pauseEnd) : null;
+    const candidates = [
+      fv ? toMs(fv) : grantMs,
+      termMs ?? grantMs,
+      pauseEndMs ?? pauseStartMs ?? grantMs,
+    ];
     return {
       grant: g,
       label: `Grant ${i + 1}`,
-      grantMs: toMs(g.grantDate),
-      cliffMs:
-        g.vesting.mode === "normal"
-          ? toMs(cliffDate(g.vesting, g.grantDate))
-          : null,
-      fullyMs: fv ? toMs(fv) : toMs(g.grantDate),
+      grantMs,
+      cliffMs: (() => {
+        if (g.vesting.mode !== "normal") return null;
+        const c = effectiveCliffDate(g.vesting, g.grantDate, g); // pause-aware
+        return c ? toMs(c) : null;
+      })(),
+      fullyMs: Math.max(...candidates),
+      termMs,
+      pauseStartMs,
+      pauseEndMs,
     };
   });
 
@@ -100,7 +114,7 @@ export default function StakeholderVestingPage() {
   // Sample at the real vesting dates (steps) + grant/cliff/today + flat outer
   // tails. No uniform grid, so steps stay crisp at any zoom.
   const trancheData = grants.map((g) => {
-    const tr = generateTranches(g.vesting, g.grantDate);
+    const tr = generateTranches(g.vesting, g.grantDate, g); // effective (GRANT-16/17)
     let acc = 0;
     const pts = tr.map((t) => {
       acc += Number(t.percent) || 0;
@@ -113,6 +127,9 @@ export default function StakeholderVestingPage() {
   meta.forEach((m) => {
     set.add(m.grantMs);
     if (m.cliffMs != null) set.add(m.cliffMs);
+    if (m.termMs != null) set.add(m.termMs);
+    if (m.pauseStartMs != null) set.add(m.pauseStartMs);
+    if (m.pauseEndMs != null) set.add(m.pauseEndMs);
     set.add(m.fullyMs);
   });
   trancheData.forEach((td) =>
@@ -132,6 +149,9 @@ export default function StakeholderVestingPage() {
   meta.forEach((m) => {
     events.push(m.grantMs);
     if (m.cliffMs != null) events.push(m.cliffMs);
+    if (m.termMs != null) events.push(m.termMs);
+    if (m.pauseStartMs != null) events.push(m.pauseStartMs);
+    if (m.pauseEndMs != null) events.push(m.pauseEndMs);
   });
   const nearEvent = (t: number) => events.some((e) => Math.abs(e - t) < NEAR_EVENT);
   const times: number[] = [];
@@ -168,6 +188,9 @@ export default function StakeholderVestingPage() {
       grantMs: m.grantMs,
       cliffMs: m.cliffMs,
       fullyMs: m.fullyMs,
+      termMs: m.termMs,
+      pauseStartMs: m.pauseStartMs,
+      pauseEndMs: m.pauseEndMs,
       values,
     };
   });

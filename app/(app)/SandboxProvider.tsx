@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { Vesting } from "./grants/vesting";
+import { reservedUnits, type Vesting } from "./grants/vesting";
 
 // ---- Data shapes (map 1:1 to the future Postgres tables) ----
 export type PoolType = "real" | "phantom";
@@ -60,6 +60,11 @@ export interface Grant {
   grantDate: string; // yyyy-mm-dd
   strike: number | null;
   vesting: Vesting;
+  // Lifecycle (GRANT-16/17) — nullable columns in the future Grant table.
+  // Terminate and Pause may coexist; both are reversible.
+  terminationDate: string | null; // vesting stops; the day itself does NOT vest
+  pauseStart: string | null;
+  pauseEnd: string | null; // null while pauseStart is set = open-ended pause
   createdAt: string;
   createdBy: string;
 }
@@ -179,6 +184,9 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
               ...x,
               createdBy: fixActor(x.createdBy),
               seq: typeof x.seq === "number" ? x.seq : ++maxSeq,
+              terminationDate: x.terminationDate ?? null,
+              pauseStart: x.pauseStart ?? null,
+              pauseEnd: x.pauseEnd ?? null,
             })),
           );
         }
@@ -367,7 +375,36 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       parts.push(`pool ${pname(old.poolId)} → ${pname(patch.poolId)}`);
     if (patch.grantDate !== undefined && patch.grantDate !== old.grantDate)
       parts.push(`grant date ${old.grantDate} → ${patch.grantDate}`);
+    if (patch.strike !== undefined && patch.strike !== old.strike)
+      parts.push(`strike ${old.strike ?? "—"} → ${patch.strike ?? "—"}`);
+    if (
+      patch.stakeholderId !== undefined &&
+      patch.stakeholderId !== old.stakeholderId
+    )
+      parts.push("stakeholder changed");
     if (patch.vesting !== undefined) parts.push("vesting updated");
+    // lifecycle events (GRANT-16/17)
+    if (
+      patch.terminationDate !== undefined &&
+      patch.terminationDate !== old.terminationDate
+    )
+      parts.push(
+        patch.terminationDate
+          ? `vesting terminated from ${patch.terminationDate}`
+          : "termination removed — scheduled vesting resumes",
+      );
+    const pauseTouched =
+      (patch.pauseStart !== undefined && patch.pauseStart !== old.pauseStart) ||
+      (patch.pauseEnd !== undefined && patch.pauseEnd !== old.pauseEnd);
+    if (pauseTouched) {
+      const ns = patch.pauseStart !== undefined ? patch.pauseStart : old.pauseStart;
+      const ne = patch.pauseEnd !== undefined ? patch.pauseEnd : old.pauseEnd;
+      parts.push(
+        ns
+          ? `vesting paused ${ns} → ${ne ?? "open-ended"}`
+          : "pause removed — schedule recomputed",
+      );
+    }
     if (parts.length) pushLog("grant", id, "UPDATE", parts.join("; "));
     flash(id);
   };
@@ -379,10 +416,16 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
 
   const poolsForCompany = (companyId: string) =>
     pools.filter((p) => p.companyId === companyId);
+  // Units a pool has RESERVED. A terminated grant only reserves what actually
+  // vests — the forfeited remainder is back in the pool (GRANT-16); a paused
+  // grant keeps its full reservation (GRANT-17).
   const grantedFor = (poolId: string) =>
     grants
       .filter((g) => g.poolId === poolId)
-      .reduce((sum, g) => sum + (g.quantity || 0), 0);
+      .reduce(
+        (sum, g) => sum + reservedUnits(g.quantity || 0, g.vesting, g.grantDate, g),
+        0,
+      );
   const logsFor = (objectId: string) =>
     logs.filter((l) => l.objectId === objectId);
   const resetSandbox = () => {

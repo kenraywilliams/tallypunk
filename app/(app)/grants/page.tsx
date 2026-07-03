@@ -5,7 +5,7 @@ import { useSandbox, type Grant } from "../SandboxProvider";
 import EditIcon from "../EditIcon";
 import { fullName } from "../stakeholders/util";
 import { ColumnsMenu, sortRows, useListView, type ColDef } from "../listview";
-import GrantDialog, { gid } from "./GrantDialog";
+import GrantDialog, { gid, grantStatus, StatusChip } from "./GrantDialog";
 import {
   fullyVestedDate,
   todayISO,
@@ -20,7 +20,8 @@ type GrantCol =
   | "quantity"
   | "date"
   | "vested"
-  | "fully";
+  | "fully"
+  | "status";
 const COLS: ColDef<GrantCol>[] = [
   { key: "id", label: "ID" },
   { key: "stakeholder", label: "Stakeholder" },
@@ -29,6 +30,7 @@ const COLS: ColDef<GrantCol>[] = [
   { key: "date", label: "Grant date" },
   { key: "vested", label: "Vested" },
   { key: "fully", label: "Fully vested" },
+  { key: "status", label: "Status" },
 ];
 const DEFAULT: GrantCol[] = [
   "id",
@@ -37,6 +39,7 @@ const DEFAULT: GrantCol[] = [
   "quantity",
   "date",
   "vested",
+  "status",
 ];
 
 export default function GrantsPage() {
@@ -69,9 +72,11 @@ export default function GrantsPage() {
       case "date":
         return g.grantDate;
       case "vested":
-        return vestedFraction(g.vesting, g.grantDate, today);
+        return vestedFraction(g.vesting, g.grantDate, today, g);
       case "fully":
-        return fullyVestedDate(g.vesting, g.grantDate) ?? "";
+        return fullyVestedDate(g.vesting, g.grantDate, g) ?? "";
+      case "status":
+        return grantStatus(g) === "terminated" ? 2 : grantStatus(g) === "paused" ? 1 : 0;
       default:
         return "";
     }
@@ -95,17 +100,27 @@ export default function GrantsPage() {
         return g.grantDate;
       case "vested": {
         const pct = Math.round(
-          vestedFraction(g.vesting, g.grantDate, today) * 100,
+          vestedFraction(g.vesting, g.grantDate, today, g) * 100,
         );
-        const u = vestedUnits(g.quantity, g.vesting, g.grantDate, today);
+        const u = vestedUnits(g.quantity, g.vesting, g.grantDate, today, g);
         return `${pct}% · ${u.toLocaleString()}`;
       }
       case "fully":
-        return (
-          fullyVestedDate(g.vesting, g.grantDate) ?? (
+        return g.terminationDate ? (
+          <span className="muted-cell">—</span>
+        ) : (
+          (fullyVestedDate(g.vesting, g.grantDate, g) ?? (
             <span className="muted-cell">—</span>
-          )
+          ))
         );
+      case "status": {
+        const st = grantStatus(g);
+        return st === "active" ? (
+          <span className="muted-cell">Active</span>
+        ) : (
+          <StatusChip status={st} />
+        );
+      }
       default:
         return null;
     }

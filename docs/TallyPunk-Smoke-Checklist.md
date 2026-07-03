@@ -27,6 +27,10 @@ Quick click-through — the compiler can't catch behaviour, your eyes can:
 - **Logs**: scroll is **inside** the panel; title + **Close** always visible.
 - **Click-outside** closes a **view** dialog (back to whatever's behind), but an **edit/create** dialog needs Cancel/×.
 - **Reset sandbox** clears everything; **refresh** persists what you kept.
+- **Terminate vesting** (grant view): panel previews kept/forfeited (+ "returned to {pool}"); confirm → **the open dialog updates IMMEDIATELY** (banner + buttons + dates, no close/reopen), red banner, **Terminated** chip in Grants list + stakeholder Grants tab, pool "left" grows by the forfeited units; **History** logs "vesting terminated from {date}". Same immediate-refresh check for un-terminate and pause.
+- **Un-terminate**: warning ("use Pause for a temporary hold"); **blocked with a shortfall count** if the pool was re-granted meanwhile; resume restores schedule + reservation.
+- **Pause vesting**: start + optional end; end-before-start blocked; gold banner; with an end date **Fully vested pushes out by the pause length**; open-ended shows "— suspended"; **Remove pause** restores; units stay reserved (pool "left" unchanged).
+- **Vesting chart**: terminated grant flat-lines from the date, **flag marker** in the gutter (hover → "vesting terminated from {date}"); paused grant shows a **shaded band**, flat across it, then resumes shifted.
 
 ## Gate 3 — later (when we move to Claude Code / set up CI)
 
@@ -42,9 +46,4 @@ That's the natural home for "real" regression safety; for now Gates 1–2 keep u
 - New page/route → add a "loads styled + routes" line.
 - New create/edit flow → add a "create with defaults / Save-on-change / Cancel-resets" line.
 - New validation rule → add the "blocked when…" line.
-- New data relationship (e.g. Grants ↔ Pools) → add a "link works both ways" line.
-
-I'll prompt to update it as we go; flag me if I forget.
-
----
-_Started 26 Jun 2026. Last updated 26 Jun 2026._
+- New data relationship (e.g. Grants ↔ Pools) → add a "link works both ways

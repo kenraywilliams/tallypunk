@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useSandbox, type Grant } from "../../../SandboxProvider";
-import GrantDialog, { gid } from "../../../grants/GrantDialog";
+import GrantDialog, {
+  gid,
+  grantStatus,
+  StatusChip,
+} from "../../../grants/GrantDialog";
 import { todayISO, vestedUnits } from "../../../grants/vesting";
 
 export default function StakeholderGrantsPage() {
@@ -18,7 +22,7 @@ export default function StakeholderGrantsPage() {
   const today = todayISO();
   const totalGranted = grants.reduce((s, g) => s + g.quantity, 0);
   const totalVested = grants.reduce(
-    (s, g) => s + vestedUnits(g.quantity, g.vesting, g.grantDate, today),
+    (s, g) => s + vestedUnits(g.quantity, g.vesting, g.grantDate, today, g),
     0,
   );
   const poolName = (pid: string | null) =>
@@ -49,8 +53,10 @@ export default function StakeholderGrantsPage() {
               title={`#${gid(g.seq)} · ${g.quantity.toLocaleString()} · ${poolName(
                 g.poolId,
               )}`}
+              style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
             >
               Grant {i + 1}
+              <StatusChip status={grantStatus(g)} />
             </button>
           ))}
         </div>

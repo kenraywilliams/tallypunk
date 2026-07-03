@@ -102,7 +102,7 @@ export default function PoolsPage() {
       <div className="page-head">
         <div>
           <h1 className="page-title">Pools</h1>
-          <p className="page-sub">Option pools you grant from</p>
+          <p className="page-sub">Option pools to grant from</p>
         </div>
         {hydrated && pools.length > 0 && (
           <div className="right">

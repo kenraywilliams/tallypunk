@@ -9,6 +9,9 @@ export interface GrantSeries {
   grantMs: number;
   cliffMs: number | null;
   fullyMs: number;
+  termMs: number | null; // GRANT-16 — vesting terminated from this date
+  pauseStartMs: number | null; // GRANT-17
+  pauseEndMs: number | null; // null while pauseStartMs set = open-ended
   values: number[]; // vested units, aligned to `times`
 }
 
@@ -452,8 +455,11 @@ export default function VestingChart({
       for (const s of series) {
         const marks: number[] = [];
         // only grant pens are hoverable here — the cliff is already obvious on
-        // the chart (the first step), so its icon isn't a hover point
+        // the chart (the first step), so its icon isn't a hover point.
+        // termination flags snap only BELOW the axis (reg === "x") so a series
+        // running low in the plot never loses the cursor to a flag.
         if (prefs.dates) marks.push(s.grantMs);
+        if (s.termMs != null && reg === "x") marks.push(s.termMs);
         for (const ms of marks) {
           if (ms < view.xMin || ms > view.xMax) continue;
           const d = Math.abs(xOf(ms) - sx);
@@ -481,16 +487,24 @@ export default function VestingChart({
       setHi(null);
       return;
     }
-    const eventSet = new Set<number>();
+    // grant/cliff dates keep strong gravity; lifecycle dates (terminate /
+    // pause / resume) get a whisper only — their markers and bands already
+    // tell the story, and they must not steal the cursor from nearby series.
+    const strongEvents = new Set<number>();
+    const softEvents = new Set<number>();
     for (const s of series) {
-      eventSet.add(s.grantMs);
-      if (s.cliffMs != null) eventSet.add(s.cliffMs);
+      strongEvents.add(s.grantMs);
+      if (s.cliffMs != null) strongEvents.add(s.cliffMs);
+      if (s.termMs != null) softEvents.add(s.termMs);
+      if (s.pauseStartMs != null) softEvents.add(s.pauseStartMs);
+      if (s.pauseEndMs != null) softEvents.add(s.pauseEndMs);
     }
     let best = 0;
     let bd = Infinity;
     for (let i = 0; i < times.length; i++) {
       let d = Math.abs(xOf(times[i]) - sx);
-      if (eventSet.has(times[i])) d -= 10; // gravity: cliff/grant dates win near-ties
+      if (strongEvents.has(times[i])) d -= 10; // cliff/grant dates win near-ties
+      else if (softEvents.has(times[i])) d -= 2;
       if (d < bd) {
         bd = d;
         best = i;
@@ -513,18 +527,21 @@ export default function VestingChart({
   };
   let shown: Cand[] = [];
   if (hi != null && !drag && gutter) {
-    // hovering a grant pen in the gutter → show just that grant, granted
+    // hovering a grant pen / termination flag in the gutter → just that grant
     const tHi = times[hi];
     const cands: Cand[] = [];
     series.forEach((s, idx) => {
-      if (s.grantMs !== tHi) return;
+      const evt =
+        s.termMs === tHi ? "terminated" : s.grantMs === tHi ? "granted" : null;
+      if (!evt) return;
       cands.push({
         name: s.label,
         value: s.values[hi],
         denom: s.quantity,
         color: colorOf(idx),
-        y: yOf(s.values[hi]),
-        evt: "granted",
+        // a flag's tag belongs AT the flag (axis), not up at the series line
+        y: evt === "terminated" ? padT + plotH : yOf(s.values[hi]),
+        evt,
       });
     });
     shown = cands.sort((a, b) => a.y - b.y).slice(0, 4);
@@ -534,6 +551,9 @@ export default function VestingChart({
       const parts: string[] = [];
       if (s.grantMs === tHi) parts.push("granted");
       if (s.cliffMs === tHi) parts.push("cliffed");
+      if (s.termMs === tHi) parts.push("terminated");
+      if (s.pauseStartMs === tHi) parts.push("paused");
+      if (s.pauseEndMs === tHi) parts.push("resumes");
       return parts.join(" · ");
     };
     const cands: Cand[] = [];
@@ -743,6 +763,31 @@ export default function VestingChart({
         ))}
 
         <g clipPath="url(#vc-plot)">
+          {/* pause bands (GRANT-17): shaded window, flat curve across it */}
+          {series.map((s, i) => {
+            if (s.pauseStartMs == null || hidden.has(s.id)) return null;
+            const bandEnd = s.pauseEndMs ?? view.xMax; // open-ended → to the edge
+            if (bandEnd < view.xMin || s.pauseStartMs > view.xMax) return null;
+            const x0 = xOf(Math.max(s.pauseStartMs, view.xMin));
+            const x1 = xOf(Math.min(bandEnd, view.xMax));
+            return (
+              <g key={"pb" + s.id}>
+                <rect
+                  x={x0}
+                  y={padT}
+                  width={Math.max(0, x1 - x0)}
+                  height={plotH}
+                  fill={colorOf(i)}
+                  opacity={0.08}
+                />
+                <line x1={x0} y1={padT} x2={x0} y2={padT + plotH} stroke={colorOf(i)} strokeWidth={1} strokeDasharray="2 3" opacity={0.5} />
+                {s.pauseEndMs != null && (
+                  <line x1={x1} y1={padT} x2={x1} y2={padT + plotH} stroke={colorOf(i)} strokeWidth={1} strokeDasharray="2 3" opacity={0.5} />
+                )}
+              </g>
+            );
+          })}
+
           {prefs.sand
             ? bands.map((b) => (
                 <path
@@ -818,6 +863,40 @@ export default function VestingChart({
               </g>
             );
           })}
+
+        {/* termination flags (GRANT-16) — always shown when set; pole on the
+            exact date, flag to the right, label in the cliff-letter row */}
+        {series.map((s, i) => {
+          if (s.termMs == null || s.termMs < view.xMin || s.termMs > view.xMax)
+            return null;
+          const tx = xOf(s.termMs);
+          return (
+            <g key={"tm" + s.id}>
+              <line
+                x1={tx}
+                y1={M_APEX}
+                x2={tx}
+                y2={M_APEX + 14}
+                stroke={colorOf(i)}
+                strokeWidth={1.5}
+              />
+              <path
+                d={`M ${tx.toFixed(1)} ${M_APEX} L ${(tx + 8).toFixed(1)} ${M_APEX + 3.5} L ${tx.toFixed(1)} ${M_APEX + 7} Z`}
+                fill={colorOf(i)}
+              />
+              <text
+                x={tx}
+                y={M_CLETTER + 2}
+                textAnchor="middle"
+                fontSize={9}
+                fill={colorOf(i)}
+                fontWeight={700}
+              >
+                T{i + 1}
+              </text>
+            </g>
+          );
+        })}
 
         {todayX != null && (
           <>
