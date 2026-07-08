@@ -97,7 +97,6 @@ export default function StakeholderProfilePage() {
                 todayISO(),
               );
               if (status === null) return dash;
-              if (status === "active") return "Active";
               return <StatusChip status={status} />;
             })()}
           </span>

@@ -75,8 +75,10 @@ export default function GrantsPage() {
         return vestedFraction(g.vesting, g.grantDate, today, g);
       case "fully":
         return fullyVestedDate(g.vesting, g.grantDate, g) ?? "";
-      case "status":
-        return grantStatus(g) === "terminated" ? 2 : grantStatus(g) === "paused" ? 1 : 0;
+      case "status": {
+        const st = grantStatus(g);
+        return st === "vesting" ? 0 : st === "paused" ? 1 : st === "fully" ? 2 : 3;
+      }
       default:
         return "";
     }
@@ -113,14 +115,8 @@ export default function GrantsPage() {
             <span className="muted-cell">—</span>
           ))
         );
-      case "status": {
-        const st = grantStatus(g);
-        return st === "active" ? (
-          <span className="muted-cell">Active</span>
-        ) : (
-          <StatusChip status={st} />
-        );
-      }
+      case "status":
+        return <StatusChip status={grantStatus(g)} />;
       default:
         return null;
     }

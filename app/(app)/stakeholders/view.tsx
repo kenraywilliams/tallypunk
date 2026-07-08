@@ -138,7 +138,13 @@ export function StakeholderViewProvider({
       const raw = localStorage.getItem(VKEY);
       if (raw) {
         const d = JSON.parse(raw);
-        if (Array.isArray(d.visible) && d.visible.length) setVisible(d.visible);
+        if (Array.isArray(d.visible) && d.visible.length)
+          // saved prefs predate the Status column → join it in once (STK-06)
+          setVisible(
+            d.visible.includes("status")
+              ? d.visible
+              : [...d.visible, "status"],
+          );
         if (typeof d.sortKey === "string") setSortKey(d.sortKey);
         if (d.sortDir === "asc" || d.sortDir === "desc") setSortDir(d.sortDir);
         if (d.navField === "first" || d.navField === "last")

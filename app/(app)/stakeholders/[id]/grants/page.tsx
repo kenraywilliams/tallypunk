@@ -87,11 +87,18 @@ export default function StakeholderGrantsPage() {
   // Live per-grant summary line — the summary panel re-reads CURRENT state,
   // so editing a grant from it updates the row on return.
   const statusText = (g: Grant) => {
+    if (grantStatus(g) === "fully") return "fully vested";
     if (g.terminationDate)
       return `terminated ${g.terminationDate}${g.terminationInherited ? " (person-level)" : ""}`;
     if (g.pauseStart)
       return `paused ${g.pauseStart} → ${g.pauseEnd ?? "open-ended"}${g.pauseInherited ? " (person-level)" : ""}`;
     return "vesting normally";
+  };
+  // "Grant 3 (#0000017)" — the position label people actually use, married
+  // to the stable ID (apples next to apples with the chips row above).
+  const glabel = (g: Grant) => {
+    const i = grants.findIndex((x) => x.id === g.id);
+    return `${i >= 0 ? `Grant ${i + 1} ` : ""}(#${gid(g.seq)})`;
   };
   const grantLink = (g: Grant) => (
     <button
@@ -99,7 +106,7 @@ export default function StakeholderGrantsPage() {
       onClick={() => setDialog({ grant: g })}
       title="Open this grant — edit it and you'll come back here"
     >
-      #{gid(g.seq)}
+      {glabel(g)}
     </button>
   );
 
@@ -194,7 +201,11 @@ export default function StakeholderGrantsPage() {
               style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
             >
               Grant {i + 1}
-              <StatusChip status={grantStatus(g)} />
+              {/* default state unmarked here — exceptions only, or 14 green
+                  pills drown the row; the lists always show the full pill */}
+              {grantStatus(g) !== "vesting" && (
+                <StatusChip status={grantStatus(g)} />
+              )}
             </button>
           ))}
         </div>
@@ -237,6 +248,12 @@ export default function StakeholderGrantsPage() {
                     forfeits <strong>{forfeit.toLocaleString()}</strong>
                     {g.poolId ? ` → returned to ${poolName(g.poolId)}` : ""}
                   </span>
+                  {g.pauseStart && (
+                    <span style={{ color: "#8a6a33", fontWeight: 600 }}>
+                      paused {g.pauseStart} → {g.pauseEnd ?? "open-ended"} —
+                      will still be terminated
+                    </span>
+                  )}
                 </div>
               );
             })}

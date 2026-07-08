@@ -52,7 +52,15 @@ export default function StakeholdersPage() {
       granted,
       vestedPct: granted > 0 ? vested / granted : 0,
       statusRank:
-        status === "active" ? 0 : status === "paused" ? 1 : status === "terminated" ? 2 : 3,
+        status === "vesting"
+          ? 0
+          : status === "paused"
+            ? 1
+            : status === "fully"
+              ? 2
+              : status === "terminated"
+                ? 3
+                : 4,
     };
   };
 
@@ -108,7 +116,6 @@ export default function StakeholdersPage() {
       case "status": {
         const status = stakeholderStatus(grantsForStakeholder(s.id), today);
         if (status === null) return <span className="muted-cell">—</span>;
-        if (status === "active") return "Active";
         return <StatusChip status={status} />;
       }
       case "created":

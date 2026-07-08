@@ -24,26 +24,39 @@ import {
 
 export const gid = (seq: number) => String(seq).padStart(7, "0");
 
-// ---- grant lifecycle status (GRANT-16/17) — shared with the list pages ----
-// A pause whose end date has passed reads as active again.
-export type GrantStatus = "active" | "paused" | "terminated";
+// ---- grant lifecycle status (GRANT-16/17/19) — shared with the lists ----
+// "Fully vested" wins over everything (100% vested = nothing left for a
+// terminate/pause to touch); "Paused" only while the window is actually
+// RUNNING (scheduled/expired pauses read Vesting — the banner still shows
+// them); "Vesting" is the default state (renamed from Active, 8 Jul 2026).
+export type GrantStatus = "vesting" | "paused" | "terminated" | "fully";
 export const grantStatus = (g: {
   terminationDate: string | null;
   pauseStart: string | null;
   pauseEnd: string | null;
-}): GrantStatus =>
-  g.terminationDate
-    ? "terminated"
-    : g.pauseStart && (!g.pauseEnd || g.pauseEnd >= todayISO())
-      ? "paused"
-      : "active";
+  vesting: Vesting;
+  grantDate: string;
+}): GrantStatus => {
+  const today = todayISO();
+  if (vestedFraction(g.vesting, g.grantDate, today, g) >= 1 - 1e-6)
+    return "fully";
+  if (g.terminationDate) return "terminated";
+  return g.pauseStart &&
+    g.pauseStart <= today &&
+    (!g.pauseEnd || g.pauseEnd >= today)
+    ? "paused"
+    : "vesting";
+};
+
+const CHIP_COLORS: Record<GrantStatus, { bg: string; fg: string; label: string }> = {
+  vesting: { bg: "#e3efe4", fg: "#2f7d4f", label: "Vesting" }, // green: in motion
+  fully: { bg: "#e2eaf2", fg: "#3d6a96", label: "Fully vested" }, // blue: settled
+  paused: { bg: "#f3ead9", fg: "#8a6a33", label: "Paused" },
+  terminated: { bg: "#f6e2e0", fg: "#b23b3b", label: "Terminated" },
+};
 
 export function StatusChip({ status }: { status: GrantStatus }) {
-  if (status === "active") return null;
-  const c =
-    status === "terminated"
-      ? { bg: "#f6e2e0", fg: "#b23b3b" }
-      : { bg: "#f3ead9", fg: "#8a6a33" };
+  const c = CHIP_COLORS[status];
   return (
     <span
       style={{
@@ -56,7 +69,7 @@ export function StatusChip({ status }: { status: GrantStatus }) {
         whiteSpace: "nowrap",
       }}
     >
-      {status === "terminated" ? "Terminated" : "Paused"}
+      {c.label}
     </span>
   );
 }
