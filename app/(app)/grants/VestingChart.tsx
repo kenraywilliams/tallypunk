@@ -47,6 +47,14 @@ const COLORS = [
 const PREF_KEY = "tallypunk-vchart-v1";
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
+// hover feel — the balance between "events are findable" and "events don't
+// steal the cursor from the series you're actually reading"
+const GRAV_STRONG = 5; // px bonus for grant/cliff dates in the x-snap
+const GRAV_SOFT = 2; // px bonus for terminate/pause/resume dates
+const NEAR_Y = 14; // px: normal rows join the tag this close to the cursor
+const EVT_NEAR_Y = 20; // px (SVG units ≈ 2× on screen): event rows get a
+// slightly wider net than normal rows — 40 grabbed every 0% row near the axis
+
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -503,8 +511,8 @@ export default function VestingChart({
     let bd = Infinity;
     for (let i = 0; i < times.length; i++) {
       let d = Math.abs(xOf(times[i]) - sx);
-      if (strongEvents.has(times[i])) d -= 10; // cliff/grant dates win near-ties
-      else if (softEvents.has(times[i])) d -= 2;
+      if (strongEvents.has(times[i])) d -= GRAV_STRONG; // win near-ties only
+      else if (softEvents.has(times[i])) d -= GRAV_SOFT;
       if (d < bd) {
         bd = d;
         best = i;
@@ -525,37 +533,41 @@ export default function VestingChart({
     y: number;
     evt: string; // "granted" / "cliffed" when the cursor is on that series' date
   };
+  // Every event a series has on the hovered date — the tag must surface ALL
+  // of them, even when several coincide (grant + pause on the same day, etc.).
+  const eventsAt = (s: GrantSeries, t: number): string[] => {
+    const parts: string[] = [];
+    if (s.grantMs === t) parts.push("granted");
+    if (s.cliffMs === t) parts.push("cliffed");
+    if (s.termMs === t) parts.push("terminated");
+    if (s.pauseStartMs === t) parts.push("paused");
+    if (s.pauseEndMs === t) parts.push("resumes");
+    return parts;
+  };
+
   let shown: Cand[] = [];
   if (hi != null && !drag && gutter) {
-    // hovering a grant pen / termination flag in the gutter → just that grant
+    // hovering a pen / flag in the gutter → every series with an event there,
+    // each listing all its coinciding events
     const tHi = times[hi];
     const cands: Cand[] = [];
     series.forEach((s, idx) => {
-      const evt =
-        s.termMs === tHi ? "terminated" : s.grantMs === tHi ? "granted" : null;
-      if (!evt) return;
+      const parts = eventsAt(s, tHi);
+      if (!parts.length) return;
       cands.push({
         name: s.label,
         value: s.values[hi],
         denom: s.quantity,
         color: colorOf(idx),
         // a flag's tag belongs AT the flag (axis), not up at the series line
-        y: evt === "terminated" ? padT + plotH : yOf(s.values[hi]),
-        evt,
+        y: parts.includes("terminated") ? padT + plotH : yOf(s.values[hi]),
+        evt: parts.join(" · "),
       });
     });
     shown = cands.sort((a, b) => a.y - b.y).slice(0, 4);
   } else if (hi != null && !drag) {
     const tHi = times[hi];
-    const eventFor = (s: GrantSeries): string => {
-      const parts: string[] = [];
-      if (s.grantMs === tHi) parts.push("granted");
-      if (s.cliffMs === tHi) parts.push("cliffed");
-      if (s.termMs === tHi) parts.push("terminated");
-      if (s.pauseStartMs === tHi) parts.push("paused");
-      if (s.pauseEndMs === tHi) parts.push("resumes");
-      return parts.join(" · ");
-    };
+    const eventFor = (s: GrantSeries): string => eventsAt(s, tHi).join(" · ");
     const cands: Cand[] = [];
     if (prefs.total)
       cands.push({
@@ -589,9 +601,15 @@ export default function VestingChart({
         }),
       );
     if (cands.length) {
-      const near = cands.filter((c) => Math.abs(c.y - hy) <= 14);
-      if (near.length) shown = near;
-      else {
+      const near = cands.filter((c) => Math.abs(c.y - hy) <= NEAR_Y);
+      // event rows get a WIDER net (they'd otherwise vanish at 0% under a
+      // higher series) — but not an unlimited one, or the tag fills with
+      // far-away 0% "granted" rows the cursor never asked about
+      const evented = cands.filter(
+        (c) => !!c.evt && Math.abs(c.y - hy) <= EVT_NEAR_Y,
+      );
+      let sel = [...new Set([...near, ...evented])];
+      if (!sel.length) {
         let best = cands[0];
         let bd = Infinity;
         for (const c of cands) {
@@ -601,11 +619,11 @@ export default function VestingChart({
             best = c;
           }
         }
-        shown = [best];
+        sel = [best];
       }
       // drop 0%/pre-cliff grants with no event — they only clutter the tag.
       // if nothing meaningful is left, show no tag at all.
-      shown = shown
+      shown = sel
         .filter((c) => c.name === "Total" || !!c.evt || c.value > 0)
         .sort((a, b) => a.y - b.y)
         .slice(0, 4);

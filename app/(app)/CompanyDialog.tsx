@@ -127,7 +127,7 @@ export default function CompanyDialog({
           </div>
           <div className="modal-actions">
             <button className="btn btn-ghost btn-sm" onClick={() => setLogOpen(true)}>
-              History
+              Audit log
             </button>
             <span style={{ flex: 1 }} />
             <button className="btn btn-pri" onClick={() => setEditing(true)}>

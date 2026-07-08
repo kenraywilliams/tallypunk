@@ -6,16 +6,20 @@ import { useSandbox, type Company, type Stakeholder } from "../SandboxProvider";
 import CompanyDialog from "../CompanyDialog";
 import EditIcon from "../EditIcon";
 import CreateStakeholderModal from "./CreateStakeholderModal";
-import { idLabel, typeLabel } from "./util";
+import { idLabel, stakeholderStatus, typeLabel } from "./util";
+import { StatusChip } from "../grants/GrantDialog";
+import { todayISO, vestedUnits } from "../grants/vesting";
 import {
   ALL_COLS,
   sortStakeholders,
   useStakeholderView,
   type ColKey,
+  type StakeholderMetrics,
 } from "./view";
 
 export default function StakeholdersPage() {
-  const { stakeholders, companies, hydrated, flashId } = useSandbox();
+  const { stakeholders, companies, grantsForStakeholder, hydrated, flashId } =
+    useSandbox();
   const { visible, sortKey, sortDir, toggleCol, moveCol, cycleSort } =
     useStakeholderView();
   const router = useRouter();
@@ -33,7 +37,26 @@ export default function StakeholdersPage() {
     return () => document.removeEventListener("click", onDoc);
   }, []);
 
-  const rows = sortStakeholders(stakeholders, companies, sortKey, sortDir);
+  // Granted = total units across their grants; Vested = % of that vested
+  // today (lifecycle-aware — terminate/pause included).
+  const today = todayISO();
+  const metric = (s: Stakeholder): StakeholderMetrics => {
+    const gs = grantsForStakeholder(s.id);
+    const granted = gs.reduce((sum, g) => sum + (g.quantity || 0), 0);
+    const vested = gs.reduce(
+      (sum, g) => sum + vestedUnits(g.quantity, g.vesting, g.grantDate, today, g),
+      0,
+    );
+    const status = stakeholderStatus(gs, today);
+    return {
+      granted,
+      vestedPct: granted > 0 ? vested / granted : 0,
+      statusRank:
+        status === "active" ? 0 : status === "paused" ? 1 : status === "terminated" ? 2 : 3,
+    };
+  };
+
+  const rows = sortStakeholders(stakeholders, companies, sortKey, sortDir, metric);
   const hidden = ALL_COLS.filter((c) => !visible.includes(c.key));
 
   const cell = (s: Stakeholder, key: ColKey): ReactNode => {
@@ -66,10 +89,28 @@ export default function StakeholdersPage() {
       }
       case "email":
         return s.email || <span className="muted-cell">—</span>;
-      case "granted":
-        return <span className="muted-cell">—</span>;
-      case "vested":
-        return <span className="muted-cell">—</span>;
+      case "granted": {
+        const m = metric(s);
+        return m.granted > 0 ? (
+          m.granted.toLocaleString()
+        ) : (
+          <span className="muted-cell">—</span>
+        );
+      }
+      case "vested": {
+        const m = metric(s);
+        return m.granted > 0 ? (
+          `${Math.round(m.vestedPct * 100)}%`
+        ) : (
+          <span className="muted-cell">—</span>
+        );
+      }
+      case "status": {
+        const status = stakeholderStatus(grantsForStakeholder(s.id), today);
+        if (status === null) return <span className="muted-cell">—</span>;
+        if (status === "active") return "Active";
+        return <StatusChip status={status} />;
+      }
       case "created":
         return new Date(s.createdAt).toLocaleDateString();
       default:

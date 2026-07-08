@@ -5,11 +5,13 @@ import { useParams } from "next/navigation";
 import { useSandbox, type Company } from "../../SandboxProvider";
 import CompanyDialog from "../../CompanyDialog";
 import StakeholderForm from "../StakeholderForm";
-import { idLabel, typeLabel } from "../util";
+import { idLabel, stakeholderStatus, typeLabel } from "../util";
+import { StatusChip } from "../../grants/GrantDialog";
+import { todayISO } from "../../grants/vesting";
 
 export default function StakeholderProfilePage() {
   const { id } = useParams<{ id: string }>();
-  const { stakeholders, companies } = useSandbox();
+  const { stakeholders, companies, grantsForStakeholder } = useSandbox();
   const [editing, setEditing] = useState(false);
   const [companyView, setCompanyView] = useState<Company | null>(null);
 
@@ -84,6 +86,33 @@ export default function StakeholderProfilePage() {
             )}
           </span>
         </div>
+        <div className="prow">
+          <span className="plab2">Vesting status</span>
+          <span className="pval2">
+            {(() => {
+              // STK-06, option A: status = vesting reality (derived from the
+              // grants); the person-level event record is shown alongside.
+              const status = stakeholderStatus(
+                grantsForStakeholder(s.id),
+                todayISO(),
+              );
+              if (status === null) return dash;
+              if (status === "active") return "Active";
+              return <StatusChip status={status} />;
+            })()}
+          </span>
+        </div>
+        {(s.terminationDate || s.pauseStart) && (
+          <div className="prow">
+            <span className="plab2">Person-level event</span>
+            <span className="pval2" style={{ fontSize: 13 }}>
+              {s.terminationDate
+                ? `Terminated vesting from ${s.terminationDate}`
+                : `Paused vesting ${s.pauseStart} → ${s.pauseEnd ?? "open-ended"}`}
+              {" — manage under the Grants tab"}
+            </span>
+          </div>
+        )}
         <div className="prow full">
           <span className="plab2">Notes</span>
           <span className="pval2 pval-note">{s.notes || dash}</span>

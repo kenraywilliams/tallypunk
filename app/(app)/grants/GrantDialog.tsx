@@ -3,8 +3,9 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useSandbox, type Grant } from "../SandboxProvider";
 import Modal from "../Modal";
+import LogDialog from "../LogDialog";
 import PoolDialog from "../pools/PoolDialog";
-import { fullName, idLabel } from "../stakeholders/util";
+import { fullName, idLabel, stakeholderStatus } from "../stakeholders/util";
 import {
   FREQS,
   annualSeed,
@@ -24,12 +25,18 @@ import {
 export const gid = (seq: number) => String(seq).padStart(7, "0");
 
 // ---- grant lifecycle status (GRANT-16/17) — shared with the list pages ----
+// A pause whose end date has passed reads as active again.
 export type GrantStatus = "active" | "paused" | "terminated";
 export const grantStatus = (g: {
   terminationDate: string | null;
   pauseStart: string | null;
+  pauseEnd: string | null;
 }): GrantStatus =>
-  g.terminationDate ? "terminated" : g.pauseStart ? "paused" : "active";
+  g.terminationDate
+    ? "terminated"
+    : g.pauseStart && (!g.pauseEnd || g.pauseEnd >= todayISO())
+      ? "paused"
+      : "active";
 
 export function StatusChip({ status }: { status: GrantStatus }) {
   if (status === "active") return null;
@@ -183,6 +190,7 @@ export default function GrantDialog({
     stakeholders,
     pools,
     grants,
+    grantsForStakeholder,
     grantedFor,
     addGrant,
     updateGrant,
@@ -209,13 +217,14 @@ export default function GrantDialog({
     grant?.vesting ?? defaultVesting(),
   );
   const [poolOpen, setPoolOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [periodDraft, setPeriodDraft] = useState<string | null>(null);
 
   // ---- lifecycle (GRANT-16/17) — view-mode panels ----
-  const [panel, setPanel] = useState<null | "terminate" | "pause" | "unterminate">(
-    null,
-  );
+  const [panel, setPanel] = useState<
+    null | "terminate" | "pause" | "unterminate" | "removepause"
+  >(null);
   const [termDraft, setTermDraft] = useState(todayISO());
   const [psDraft, setPsDraft] = useState(grant?.pauseStart ?? todayISO());
   const [peDraft, setPeDraft] = useState(grant?.pauseEnd ?? "");
@@ -433,7 +442,10 @@ export default function GrantDialog({
 
   const doTerminate = () => {
     if (!grant || !termDraft) return;
-    updateGrant(grant.id, { terminationDate: termDraft });
+    updateGrant(grant.id, {
+      terminationDate: termDraft,
+      terminationInherited: false, // individual action
+    });
     notify(
       grantPool && termPreview.returned > 0
         ? `Vesting terminated — ${termPreview.returned.toLocaleString()} units returned to ${grantPool.name}`
@@ -456,7 +468,10 @@ export default function GrantDialog({
 
   const doUnterminate = () => {
     if (!grant || unterminateShort > 0) return;
-    updateGrant(grant.id, { terminationDate: null });
+    updateGrant(grant.id, {
+      terminationDate: null,
+      terminationInherited: false,
+    });
     notify("Termination removed — scheduled vesting resumes");
     setPanel(null);
   };
@@ -464,7 +479,11 @@ export default function GrantDialog({
   const pauseInvalid = !psDraft || (!!peDraft && peDraft < psDraft);
   const doPause = () => {
     if (!grant || pauseInvalid) return;
-    updateGrant(grant.id, { pauseStart: psDraft, pauseEnd: peDraft || null });
+    updateGrant(grant.id, {
+      pauseStart: psDraft,
+      pauseEnd: peDraft || null,
+      pauseInherited: false, // individual action
+    });
     notify(
       grantPool
         ? `Vesting paused — units stay reserved in ${grantPool.name}`
@@ -475,7 +494,11 @@ export default function GrantDialog({
 
   const doRemovePause = () => {
     if (!grant) return;
-    updateGrant(grant.id, { pauseStart: null, pauseEnd: null });
+    updateGrant(grant.id, {
+      pauseStart: null,
+      pauseEnd: null,
+      pauseInherited: false,
+    });
     notify("Pause removed — schedule recomputed");
     setPanel(null);
   };
@@ -636,6 +659,40 @@ export default function GrantDialog({
                   </div>
                 )}
               </div>
+
+              {/* STK-06: creating a grant for a terminated person flips their
+                  status back to Active (vesting reality) — say so up front */}
+              {!grant &&
+                selStake &&
+                (() => {
+                  const status = stakeholderStatus(
+                    grantsForStakeholder(selStake.id),
+                    todayISO(),
+                  );
+                  const pl = selStake.terminationDate;
+                  if (!pl && status !== "terminated") return null;
+                  return (
+                    <div
+                      style={{
+                        background: "#f3ead9",
+                        color: "#8a6a33",
+                        borderRadius: 8,
+                        padding: "9px 12px",
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        marginTop: 8,
+                      }}
+                    >
+                      {fullName(selStake) || "This stakeholder"} is terminated
+                      {pl
+                        ? ` (person-level, from ${pl})`
+                        : " (all their grants are terminated)"}
+                      . This new grant vests normally, so their status will
+                      show <strong>Active</strong> again — their previously
+                      terminated grants stay terminated.
+                    </div>
+                  );
+                })()}
 
               <label className="lab">Pool</label>
               <div className="row">
@@ -1104,12 +1161,29 @@ export default function GrantDialog({
                 <strong>All previously-scheduled vesting will resume</strong> —
                 use <strong>Pause vesting</strong> instead if you want a
                 temporary hold.
-                {grantPool
-                  ? unterminateShort > 0
-                    ? ` Blocked: ${grantPool.name} is ${unterminateShort.toLocaleString()} units short of re-reserving this grant (units were re-granted meanwhile). Free up capacity or expand the pool first.`
-                    : ` The forfeited units will be re-reserved in ${grantPool.name}.`
+                {grantPool && unterminateShort === 0
+                  ? ` The forfeited units will be re-reserved in ${grantPool.name}.`
                   : ""}
               </p>
+              {unterminateShort > 0 && grantPool && (
+                <div
+                  style={{
+                    background: "#f6e2e0",
+                    color: "#b23b3b",
+                    borderRadius: 8,
+                    padding: "9px 12px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    marginTop: 10,
+                  }}
+                >
+                  Blocked — {grantPool.name} is{" "}
+                  {unterminateShort.toLocaleString()} unit
+                  {unterminateShort === 1 ? "" : "s"} short of re-reserving
+                  this grant (they were re-granted meanwhile). Free up
+                  capacity or expand the pool first.
+                </div>
+              )}
               <div className="modal-actions">
                 <button className="btn btn-ghost" onClick={() => setPanel(null)}>
                   Cancel
@@ -1117,9 +1191,37 @@ export default function GrantDialog({
                 <button
                   className="btn btn-pri"
                   disabled={unterminateShort > 0}
+                  title={
+                    unterminateShort > 0 && grantPool
+                      ? `${grantPool.name} is ${unterminateShort.toLocaleString()} unit${unterminateShort === 1 ? "" : "s"} short — free up capacity or expand the pool`
+                      : undefined
+                  }
                   onClick={doUnterminate}
                 >
-                  Resume vesting
+                  Reinstate vesting
+                </button>
+              </div>
+            </div>
+          )}
+
+          {panel === "removepause" && (
+            <div style={boxS}>
+              <p style={{ fontSize: 12.5, color: "var(--muted)", margin: 0 }}>
+                <strong>This removes the pause entirely</strong> — the schedule
+                recomputes as if it had never happened (any delay snaps back).
+                It's a <strong>removal, not an un-pause</strong>: to end a
+                leave, set the pause's <strong>Until</strong> date instead.
+                The pause stays visible in the audit log.
+              </p>
+              <div className="modal-actions">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setPanel("pause")}
+                >
+                  Back
+                </button>
+                <button className="btn btn-pri" onClick={doRemovePause}>
+                  Remove pause
                 </button>
               </div>
             </div>
@@ -1171,8 +1273,11 @@ export default function GrantDialog({
                   Cancel
                 </button>
                 {grant.pauseStart && (
-                  <button className="btn btn-ghost" onClick={doRemovePause}>
-                    Remove pause
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setPanel("removepause")}
+                  >
+                    Remove pause…
                   </button>
                 )}
                 <button
@@ -1188,6 +1293,12 @@ export default function GrantDialog({
 
           {panel === null && (
             <div className="modal-actions">
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setLogOpen(true)}
+              >
+                Audit log
+              </button>
               {grant.terminationDate ? (
                 <button
                   className="btn btn-ghost"
@@ -1232,6 +1343,13 @@ export default function GrantDialog({
             setPoolId(p.id);
             setPoolQuery(p.name);
           }}
+        />
+      )}
+      {logOpen && grant && (
+        <LogDialog
+          objectId={grant.id}
+          title={`Grant #${gid(grant.seq)}`}
+          onClose={() => setLogOpen(false)}
         />
       )}
     </Modal>

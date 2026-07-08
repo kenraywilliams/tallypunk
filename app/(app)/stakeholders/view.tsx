@@ -13,6 +13,7 @@ export type ColKey =
   | "email"
   | "granted"
   | "vested"
+  | "status"
   | "created";
 
 export interface ColDef {
@@ -29,6 +30,7 @@ export const ALL_COLS: ColDef[] = [
   { key: "email", label: "Email" },
   { key: "granted", label: "Granted" },
   { key: "vested", label: "Vested" },
+  { key: "status", label: "Status" },
   { key: "created", label: "Created" },
 ];
 
@@ -40,15 +42,25 @@ const DEFAULT_VISIBLE: ColKey[] = [
   "company",
   "granted",
   "vested",
+  "status",
 ];
 
 type Dir = "asc" | "desc";
 export type NavField = "first" | "last";
 
+// Equity numbers for the Granted / Vested columns — supplied by the page
+// (which has the grants + vesting engine); the view stays presentation-only.
+export interface StakeholderMetrics {
+  granted: number; // total units across their grants
+  vestedPct: number; // 0..1, lifecycle-aware, as of today
+  statusRank: number; // 0 active · 1 paused · 2 terminated · 3 no grants
+}
+
 function sortValue(
   s: Stakeholder,
   key: ColKey,
   cname: (id: string | null) => string,
+  metric?: (s: Stakeholder) => StakeholderMetrics,
 ): string | number {
   switch (key) {
     case "id":
@@ -64,9 +76,11 @@ function sortValue(
     case "email":
       return s.email.toLowerCase();
     case "granted":
-      return 0;
+      return metric ? metric(s).granted : 0;
     case "vested":
-      return 0;
+      return metric ? metric(s).vestedPct : 0;
+    case "status":
+      return metric ? metric(s).statusRank : 3;
     case "created":
       return s.createdAt;
     default:
@@ -79,12 +93,13 @@ export function sortStakeholders(
   companies: Company[],
   key: ColKey,
   dir: Dir,
+  metric?: (s: Stakeholder) => StakeholderMetrics,
 ): Stakeholder[] {
   const cname = (id: string | null) =>
     id ? (companies.find((c) => c.id === id)?.name ?? "") : "";
   return [...list].sort((a, b) => {
-    const va = sortValue(a, key, cname);
-    const vb = sortValue(b, key, cname);
+    const va = sortValue(a, key, cname, metric);
+    const vb = sortValue(b, key, cname, metric);
     const c = va < vb ? -1 : va > vb ? 1 : 0;
     return dir === "asc" ? c : -c;
   });

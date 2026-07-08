@@ -47,6 +47,11 @@ export interface Stakeholder {
   companyId: string | null;
   email: string; // detail only — not shown in the table
   notes: string; // detail only
+  // Person-level lifecycle RECORD (GRANT-18): the event lives here and drives
+  // buttons / status / Profile; the fanned-out effect lives on each grant.
+  terminationDate?: string | null;
+  pauseStart?: string | null;
+  pauseEnd?: string | null;
   createdAt: string;
   createdBy: string;
 }
@@ -65,6 +70,10 @@ export interface Grant {
   terminationDate: string | null; // vesting stops; the day itself does NOT vest
   pauseStart: string | null;
   pauseEnd: string | null; // null while pauseStart is set = open-ended pause
+  // GRANT-18: true when the event was fanned out from a person-level action
+  // (an "inherited" event); individual grant-level events leave these false.
+  terminationInherited?: boolean;
+  pauseInherited?: boolean;
   createdAt: string;
   createdBy: string;
 }
@@ -79,6 +88,10 @@ export interface LogEntry {
   action: LogAction;
   summary: string;
   actor: string;
+  // Grant entries only: the stakeholder who OWNED the grant when the entry
+  // was written (audit attribution — a reassigned grant's earlier history
+  // stays on the previous person's timeline; nullable FK in Postgres).
+  stakeholderId?: string | null;
 }
 
 interface Sandbox {
@@ -111,10 +124,40 @@ interface Sandbox {
     patch: Partial<Omit<Grant, "id" | "seq" | "createdAt" | "createdBy">>,
   ) => void;
   grantsForStakeholder: (stakeholderId: string) => Grant[];
+  // person-level lifecycle (GRANT-18)
+  terminateAllFor: (
+    stakeholderId: string,
+    date: string,
+  ) => { affected: string[]; skipped: string[] };
+  pauseAllFor: (
+    stakeholderId: string,
+    ps: string,
+    pe: string | null,
+  ) => { affected: string[]; skipped: string[] };
+  reinstatePreflight: (
+    stakeholderId: string,
+    selectedIds: string[],
+  ) => {
+    grantId: string;
+    inherited: boolean;
+    selected: boolean;
+    needed: number;
+    poolId: string | null;
+    ok: boolean;
+    shortfall: number;
+  }[];
+  reinstateAllFor: (
+    stakeholderId: string,
+    selectedIds: string[],
+  ) => { restored: string[]; blocked: string[] };
+  unPauseAllFor: (
+    stakeholderId: string,
+  ) => { affected: string[]; skipped: string[] };
   grantsForPool: (poolId: string) => Grant[];
   poolsForCompany: (companyId: string) => Pool[];
   grantedFor: (poolId: string) => number;
   logsFor: (objectId: string) => LogEntry[];
+  logsForStakeholder: (stakeholderId: string) => LogEntry[];
   resetSandbox: () => void;
   toast: string | null;
   notify: (msg: string) => void;
@@ -173,27 +216,37 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
             })),
           );
         }
+        let grantArr: Grant[] = [];
         {
           const arr: Grant[] = Array.isArray(d.grants) ? d.grants : [];
           let maxSeq = arr.reduce(
             (mx, x) => (typeof x.seq === "number" ? Math.max(mx, x.seq) : mx),
             0,
           );
-          setGrants(
-            arr.map((x) => ({
-              ...x,
-              createdBy: fixActor(x.createdBy),
-              seq: typeof x.seq === "number" ? x.seq : ++maxSeq,
-              terminationDate: x.terminationDate ?? null,
-              pauseStart: x.pauseStart ?? null,
-              pauseEnd: x.pauseEnd ?? null,
-            })),
-          );
+          grantArr = arr.map((x) => ({
+            ...x,
+            createdBy: fixActor(x.createdBy),
+            seq: typeof x.seq === "number" ? x.seq : ++maxSeq,
+            terminationDate: x.terminationDate ?? null,
+            pauseStart: x.pauseStart ?? null,
+            pauseEnd: x.pauseEnd ?? null,
+          }));
+          setGrants(grantArr);
         }
         setLogs(
           (Array.isArray(d.logs) ? d.logs : []).map((l: LogEntry) => ({
             ...l,
             actor: fixActor(l.actor),
+            // Backfill: grant entries written before attribution existed
+            // adopt the grant's CURRENT owner — exact unless the grant was
+            // reassigned pre-backfill (sandbox-acceptable).
+            ...(l.objectType === "grant" && l.stakeholderId === undefined
+              ? {
+                  stakeholderId:
+                    grantArr.find((g) => g.id === l.objectId)?.stakeholderId ??
+                    null,
+                }
+              : {}),
           })),
         );
       }
@@ -230,6 +283,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     objectId: string,
     action: LogAction,
     summary: string,
+    stakeholderId?: string | null,
   ) => {
     setLogs((cur) => [
       {
@@ -240,6 +294,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         action,
         summary,
         actor: ME,
+        ...(stakeholderId !== undefined ? { stakeholderId } : {}),
       },
       ...cur,
     ]);
@@ -357,7 +412,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       createdBy: ME,
     };
     setGrants((cur) => [...cur, gr]);
-    pushLog("grant", gr.id, "CREATE", "Grant created");
+    pushLog("grant", gr.id, "CREATE", "Grant created", gr.stakeholderId);
     flash(gr.id);
     return gr;
   };
@@ -375,13 +430,19 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       parts.push(`pool ${pname(old.poolId)} → ${pname(patch.poolId)}`);
     if (patch.grantDate !== undefined && patch.grantDate !== old.grantDate)
       parts.push(`grant date ${old.grantDate} → ${patch.grantDate}`);
+    const sname = (sid: string) => {
+      const s = stakeholders.find((x) => x.id === sid);
+      return s ? `${s.firstName} ${s.lastName}`.trim() || "—" : "—";
+    };
+    const reassigned =
+      patch.stakeholderId !== undefined &&
+      patch.stakeholderId !== old.stakeholderId;
     if (patch.strike !== undefined && patch.strike !== old.strike)
       parts.push(`strike ${old.strike ?? "—"} → ${patch.strike ?? "—"}`);
-    if (
-      patch.stakeholderId !== undefined &&
-      patch.stakeholderId !== old.stakeholderId
-    )
-      parts.push("stakeholder changed");
+    if (reassigned)
+      parts.push(
+        `stakeholder ${sname(old.stakeholderId)} → ${sname(patch.stakeholderId!)}`,
+      );
     if (patch.vesting !== undefined) parts.push("vesting updated");
     // lifecycle events (GRANT-16/17)
     if (
@@ -405,12 +466,236 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
           : "pause removed — schedule recomputed",
       );
     }
-    if (parts.length) pushLog("grant", id, "UPDATE", parts.join("; "));
+    // Attribution: entries belong to the CURRENT owner's timeline. On a
+    // reassignment, the previous owner's timeline keeps everything up to the
+    // move and additionally records where the grant went — so neither
+    // person's audit trail follows the wrong grant history (GBL-06).
+    const owner = reassigned ? patch.stakeholderId! : old.stakeholderId;
+    if (parts.length) pushLog("grant", id, "UPDATE", parts.join("; "), owner);
+    if (reassigned)
+      pushLog(
+        "grant",
+        id,
+        "UPDATE",
+        `grant reassigned to ${sname(patch.stakeholderId!)} — its history from here lives with them`,
+        old.stakeholderId,
+      );
     flash(id);
   };
 
   const grantsForStakeholder = (stakeholderId: string) =>
     grants.filter((g) => g.stakeholderId === stakeholderId);
+
+  // ---- person-level lifecycle (GRANT-18) ----
+  // Fan-out: the action writes the event onto each eligible grant (tagged
+  // inherited) AND records it on the stakeholder. Individual grant events
+  // always win — those grants are skipped and reported.
+
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+  const terminateAllFor = (stakeholderId: string, date: string) => {
+    const gs = grants.filter((g) => g.stakeholderId === stakeholderId);
+    const affected = gs.filter((g) => !g.terminationDate);
+    const skipped = gs.filter((g) => !!g.terminationDate);
+    setGrants((cur) =>
+      cur.map((g) =>
+        g.stakeholderId === stakeholderId && !g.terminationDate
+          ? { ...g, terminationDate: date, terminationInherited: true }
+          : g,
+      ),
+    );
+    setStakeholders((cur) =>
+      cur.map((s) =>
+        s.id === stakeholderId ? { ...s, terminationDate: date } : s,
+      ),
+    );
+    affected.forEach((g) =>
+      pushLog(
+        "grant",
+        g.id,
+        "UPDATE",
+        `vesting terminated from ${date} (person-level)`,
+        stakeholderId,
+      ),
+    );
+    pushLog(
+      "stakeholder",
+      stakeholderId,
+      "UPDATE",
+      `terminated vesting from ${date} — applied to ${plural(affected.length, "grant")}, ${skipped.length} skipped (own termination)`,
+    );
+    flash(stakeholderId);
+    return { affected: affected.map((g) => g.id), skipped: skipped.map((g) => g.id) };
+  };
+
+  const pauseAllFor = (
+    stakeholderId: string,
+    ps: string,
+    pe: string | null,
+  ) => {
+    const gs = grants.filter((g) => g.stakeholderId === stakeholderId);
+    // skip grants with their own pause (individual wins) AND terminated
+    // grants — pausing one would shift tranches past its termination cut and
+    // retroactively change what was forfeited.
+    const eligible = (g: Grant) => !g.pauseStart && !g.terminationDate;
+    const affected = gs.filter(eligible);
+    const skipped = gs.filter((g) => !eligible(g));
+    setGrants((cur) =>
+      cur.map((g) =>
+        g.stakeholderId === stakeholderId && eligible(g)
+          ? { ...g, pauseStart: ps, pauseEnd: pe, pauseInherited: true }
+          : g,
+      ),
+    );
+    setStakeholders((cur) =>
+      cur.map((s) =>
+        s.id === stakeholderId ? { ...s, pauseStart: ps, pauseEnd: pe } : s,
+      ),
+    );
+    affected.forEach((g) =>
+      pushLog(
+        "grant",
+        g.id,
+        "UPDATE",
+        `vesting paused ${ps} → ${pe ?? "open-ended"} (person-level)`,
+        stakeholderId,
+      ),
+    );
+    pushLog(
+      "stakeholder",
+      stakeholderId,
+      "UPDATE",
+      `paused vesting ${ps} → ${pe ?? "open-ended"} — applied to ${plural(affected.length, "grant")}, ${skipped.length} skipped (own pause or terminated)`,
+    );
+    flash(stakeholderId);
+    return { affected: affected.map((g) => g.id), skipped: skipped.map((g) => g.id) };
+  };
+
+  // Capacity pre-flight for person-level reinstate: pools are allocated
+  // CUMULATIVELY in grant order across the SELECTED grants — two grants on
+  // one pool may each fit alone but not together.
+  const reinstatePreflight = (stakeholderId: string, selectedIds: string[]) => {
+    const sel = new Set(selectedIds);
+    const remaining = new Map<string, number>();
+    return grants
+      .filter((g) => g.stakeholderId === stakeholderId && g.terminationDate)
+      .map((g) => {
+        const needed =
+          (g.quantity || 0) -
+          reservedUnits(g.quantity, g.vesting, g.grantDate, g);
+        let ok = true;
+        let shortfall = 0;
+        if (sel.has(g.id) && g.poolId) {
+          const pool = pools.find((p) => p.id === g.poolId);
+          if (pool && pool.quantity != null) {
+            if (!remaining.has(pool.id))
+              remaining.set(pool.id, pool.quantity - grantedFor(pool.id));
+            const rem = remaining.get(pool.id)!;
+            ok = needed <= rem;
+            if (ok) remaining.set(pool.id, rem - needed);
+            else shortfall = needed - rem;
+          }
+        }
+        return {
+          grantId: g.id,
+          inherited: !!g.terminationInherited,
+          selected: sel.has(g.id),
+          needed,
+          poolId: g.poolId,
+          ok: sel.has(g.id) ? ok : false,
+          shortfall,
+        };
+      });
+  };
+
+  const reinstateAllFor = (stakeholderId: string, selectedIds: string[]) => {
+    const rows = reinstatePreflight(stakeholderId, selectedIds);
+    const restore = new Set(
+      rows.filter((r) => r.selected && r.ok).map((r) => r.grantId),
+    );
+    const blocked = rows.filter((r) => r.selected && !r.ok);
+    // After a person-level reinstate NO grant keeps an inherited termination:
+    // restored ones clear it; blocked/deselected ones become grant-level.
+    setGrants((cur) =>
+      cur.map((g) => {
+        if (g.stakeholderId !== stakeholderId) return g;
+        if (restore.has(g.id))
+          return { ...g, terminationDate: null, terminationInherited: false };
+        if (g.terminationDate && g.terminationInherited)
+          return { ...g, terminationInherited: false };
+        return g;
+      }),
+    );
+    setStakeholders((cur) =>
+      cur.map((s) =>
+        s.id === stakeholderId ? { ...s, terminationDate: null } : s,
+      ),
+    );
+    restore.forEach((gid) =>
+      pushLog(
+        "grant",
+        gid,
+        "UPDATE",
+        "termination removed — scheduled vesting resumes (person-level reinstate)",
+        stakeholderId,
+      ),
+    );
+    blocked.forEach((r) =>
+      pushLog(
+        "grant",
+        r.grantId,
+        "UPDATE",
+        `reinstate blocked — pool short ${r.shortfall.toLocaleString()} units; stays terminated (now grant-level)`,
+        stakeholderId,
+      ),
+    );
+    pushLog(
+      "stakeholder",
+      stakeholderId,
+      "UPDATE",
+      `reinstated vesting — ${plural(restore.size, "grant")} restored, ${blocked.length} blocked by pool capacity, ${rows.filter((r) => !r.selected).length} left terminated by choice`,
+    );
+    flash(stakeholderId);
+    return {
+      restored: [...restore],
+      blocked: blocked.map((r) => r.grantId),
+    };
+  };
+
+  const unPauseAllFor = (stakeholderId: string) => {
+    const gs = grants.filter((g) => g.stakeholderId === stakeholderId);
+    const affected = gs.filter((g) => g.pauseStart && g.pauseInherited);
+    const skipped = gs.filter((g) => g.pauseStart && !g.pauseInherited);
+    setGrants((cur) =>
+      cur.map((g) =>
+        g.stakeholderId === stakeholderId && g.pauseStart && g.pauseInherited
+          ? { ...g, pauseStart: null, pauseEnd: null, pauseInherited: false }
+          : g,
+      ),
+    );
+    setStakeholders((cur) =>
+      cur.map((s) =>
+        s.id === stakeholderId ? { ...s, pauseStart: null, pauseEnd: null } : s,
+      ),
+    );
+    affected.forEach((g) =>
+      pushLog(
+        "grant",
+        g.id,
+        "UPDATE",
+        "pause removed — schedule recomputed (person-level un-pause)",
+        stakeholderId,
+      ),
+    );
+    pushLog(
+      "stakeholder",
+      stakeholderId,
+      "UPDATE",
+      `removed person-level pause — ${plural(affected.length, "grant")} resumed, ${skipped.length} kept their own pause`,
+    );
+    flash(stakeholderId);
+    return { affected: affected.map((g) => g.id), skipped: skipped.map((g) => g.id) };
+  };
   const grantsForPool = (poolId: string) =>
     grants.filter((g) => g.poolId === poolId);
 
@@ -428,6 +713,15 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       );
   const logsFor = (objectId: string) =>
     logs.filter((l) => l.objectId === objectId);
+  // A stakeholder's audit = their own entries + every grant entry ATTRIBUTED
+  // to them (owner at write time — reassigned grants' earlier history stays
+  // on the previous owner's timeline).
+  const logsForStakeholder = (stakeholderId: string) =>
+    logs.filter(
+      (l) =>
+        l.objectId === stakeholderId ||
+        (l.objectType === "grant" && l.stakeholderId === stakeholderId),
+    );
   const resetSandbox = () => {
     setPools([]);
     setCompanies([]);
@@ -455,10 +749,16 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         addGrant,
         updateGrant,
         grantsForStakeholder,
+        terminateAllFor,
+        pauseAllFor,
+        reinstatePreflight,
+        reinstateAllFor,
+        unPauseAllFor,
         grantsForPool,
         poolsForCompany,
         grantedFor,
         logsFor,
+        logsForStakeholder,
         resetSandbox,
         toast,
         notify,
