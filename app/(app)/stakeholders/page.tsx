@@ -8,7 +8,13 @@ import EditIcon from "../EditIcon";
 import CreateStakeholderModal from "./CreateStakeholderModal";
 import { idLabel, stakeholderStatus, typeLabel } from "./util";
 import { StatusChip } from "../grants/GrantDialog";
+import { FilterFunnel, useColumnFilters } from "../listview";
 import { todayISO, vestedUnits } from "../grants/vesting";
+
+const STATUS_ORDER = ["Vesting", "Paused", "Fully vested", "Terminated", "—"];
+// columns that carry a funnel filter (GBL-05 filters)
+type FilterCol = "type" | "company" | "status";
+const FILTER_COLS: FilterCol[] = ["type", "company", "status"];
 import {
   ALL_COLS,
   sortStakeholders,
@@ -29,12 +35,15 @@ export default function StakeholdersPage() {
   const colsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // mousedown, NOT click: toggling a column moves its row between the
+    // Displayed/Hidden lists — by click-time the node is detached and a click
+    // listener wrongly reads it as "outside" and closes the menu
     const onDoc = (e: MouseEvent) => {
       if (colsRef.current && !colsRef.current.contains(e.target as Node))
         setColsOpen(false);
     };
-    document.addEventListener("click", onDoc);
-    return () => document.removeEventListener("click", onDoc);
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
   // Granted = total units across their grants; Vested = % of that vested
@@ -64,7 +73,38 @@ export default function StakeholdersPage() {
     };
   };
 
-  const rows = sortStakeholders(stakeholders, companies, sortKey, sortDir, metric);
+  // ---- funnel filters ----
+  const { filters, setFilter, clearAll, active, passes } =
+    useColumnFilters<FilterCol>();
+  const filterValue = (s: Stakeholder, col: FilterCol): string => {
+    if (col === "type") return typeLabel(s.type);
+    if (col === "company")
+      return s.companyId
+        ? (companies.find((c) => c.id === s.companyId)?.name ?? "—")
+        : "—";
+    const st = stakeholderStatus(grantsForStakeholder(s.id), today);
+    return st === null
+      ? "—"
+      : st === "vesting"
+        ? "Vesting"
+        : st === "paused"
+          ? "Paused"
+          : st === "fully"
+            ? "Fully vested"
+            : "Terminated";
+  };
+  const filterOptions = (col: FilterCol): string[] => {
+    const present = new Set(stakeholders.map((s) => filterValue(s, col)));
+    if (col === "status") return STATUS_ORDER.filter((v) => present.has(v));
+    return [...present].sort((a, b) =>
+      a.toLowerCase().localeCompare(b.toLowerCase()),
+    );
+  };
+  const shown = stakeholders.filter((s) =>
+    FILTER_COLS.every((c) => passes(c, filterValue(s, c))),
+  );
+
+  const rows = sortStakeholders(shown, companies, sortKey, sortDir, metric);
   const hidden = ALL_COLS.filter((c) => !visible.includes(c.key));
 
   const cell = (s: Stakeholder, key: ColKey): ReactNode => {
@@ -146,7 +186,7 @@ export default function StakeholdersPage() {
               </button>
               {colsOpen && (
                 <div className="colmenu">
-                  <div className="colmenu-h">Shown — drag order with ↑ ↓</div>
+                  <div className="colmenu-h">Displayed — order with ↑ ↓</div>
                   {visible.map((key, i) => {
                     const col = ALL_COLS.find((c) => c.key === key);
                     if (!col) return null;
@@ -221,7 +261,28 @@ export default function StakeholdersPage() {
           </button>
         </div>
       ) : (
-        <div className="stk-tablewrap">
+        <>
+          {active && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                fontSize: 13,
+                color: "var(--muted)",
+                margin: "0 0 8px",
+              }}
+            >
+              <span>
+                Filtered — showing <strong>{rows.length}</strong> of{" "}
+                {stakeholders.length}
+              </span>
+              <button className="linkbtn" onClick={clearAll}>
+                Clear filters
+              </button>
+            </div>
+          )}
+          <div className="stk-tablewrap">
           <table className="ptable">
             <thead>
             <tr>
@@ -230,17 +291,39 @@ export default function StakeholdersPage() {
                 const col = ALL_COLS.find((c) => c.key === key);
                 if (!col) return null;
                 const on = sortKey === key;
+                const fc = (FILTER_COLS as string[]).includes(key)
+                  ? (key as FilterCol)
+                  : null;
                 return (
                   <th key={key}>
-                    <button
-                      className={"th-sort" + (on ? " on" : "")}
-                      onClick={() => cycleSort(key)}
+                    {/* funnel BEFORE the name, one non-wrapping row —
+                        wrapping changed header height and broke the
+                        sticky-header borders */}
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 3,
+                        whiteSpace: "nowrap",
+                      }}
                     >
-                      {col.label}
-                      <span className="th-arrow">
-                        {on ? (sortDir === "asc" ? "▲" : "▼") : ""}
-                      </span>
-                    </button>
+                      {fc && (
+                        <FilterFunnel
+                          values={filterOptions(fc)}
+                          selected={filters[fc]}
+                          onChange={(sel) => setFilter(fc, sel)}
+                        />
+                      )}
+                      <button
+                        className={"th-sort" + (on ? " on" : "")}
+                        onClick={() => cycleSort(key)}
+                      >
+                        {col.label}
+                        <span className="th-arrow">
+                          {on ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                        </span>
+                      </button>
+                    </span>
                   </th>
                 );
               })}
@@ -278,9 +361,25 @@ export default function StakeholdersPage() {
                 ))}
               </tr>
             ))}
+            {rows.length === 0 && (
+              <tr>
+                <td
+                  colSpan={visible.length + 1}
+                  style={{
+                    textAlign: "center",
+                    color: "var(--muted)",
+                    padding: 18,
+                    fontSize: 13.5,
+                  }}
+                >
+                  No stakeholders match the filters.
+                </td>
+              </tr>
+            )}
           </tbody>
           </table>
-        </div>
+          </div>
+        </>
       )}
 
       {creating && (
