@@ -19,6 +19,9 @@ export interface Pool {
   type: PoolType;
   companyId: string | null;
   quantity: number | null; // null = unlimited ("Infinity pool")
+  // POOL-09: the General Pool — an inherent structure that always exists.
+  // Infinite, undeletable, uneditable; the landing zone for pool deletes.
+  isGeneral?: boolean;
   createdAt: string;
   createdBy: string;
 }
@@ -92,6 +95,9 @@ export interface LogEntry {
   // was written (audit attribution — a reassigned grant's earlier history
   // stays on the previous person's timeline; nullable FK in Postgres).
   stakeholderId?: string | null;
+  // Grant entries only: the pool the grant DREW FROM when the entry was
+  // written — grant activity rolls up on the pool's audit log too.
+  poolId?: string | null;
 }
 
 interface Sandbox {
@@ -158,6 +164,18 @@ interface Sandbox {
   grantedFor: (poolId: string) => number;
   logsFor: (objectId: string) => LogEntry[];
   logsForStakeholder: (stakeholderId: string) => LogEntry[];
+  logsForPool: (poolId: string) => LogEntry[];
+  // deletes (GBL-09) — hard, cascade rules per object
+  deleteGrant: (id: string) => void;
+  deleteStakeholder: (id: string) => void;
+  deleteCompany: (id: string) => void;
+  deletePool: (
+    id: string,
+    plan: Record<
+      string,
+      { action: "move"; poolId: string | null } | { action: "delete" }
+    >,
+  ) => void;
   resetSandbox: () => void;
   toast: string | null;
   notify: (msg: string) => void;
@@ -167,6 +185,19 @@ const Ctx = createContext<Sandbox | null>(null);
 const KEY = "tallypunk-sandbox-v1";
 const ME = "Sandbox user";
 const uid = () => Math.random().toString(36).slice(2, 10);
+const gidPad = (seq: number) => String(seq).padStart(7, "0");
+
+// POOL-09: the General Pool — always exists, infinite, undeletable.
+const makeGeneralPool = (): Pool => ({
+  id: uid(),
+  name: "General Pool",
+  type: "real",
+  companyId: null,
+  quantity: null,
+  isGeneral: true,
+  createdAt: new Date().toISOString(),
+  createdBy: ME,
+});
 
 export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
@@ -175,6 +206,9 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  // GBL-08: display IDs are MONOTONIC — persisted counters, never recomputed
+  // from the live arrays (max+1 would reuse a deleted object's number).
+  const [seqs, setSeqs] = useState({ stakeholder: 0, grant: 0 });
   const [toast, setToast] = useState<string | null>(null);
   const [toastKey, setToastKey] = useState(0);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -182,6 +216,9 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const flashTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
+    let maxStSeq = 0;
+    let maxGrSeq = 0;
+    let loadedSeqs: { stakeholder: number; grant: number } | null = null;
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) {
@@ -194,6 +231,12 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
             createdBy: fixActor(p.createdBy),
           })),
         );
+        if (
+          d.seqs &&
+          typeof d.seqs.stakeholder === "number" &&
+          typeof d.seqs.grant === "number"
+        )
+          loadedSeqs = d.seqs;
         setCompanies(
           (Array.isArray(d.companies) ? d.companies : []).map((c: Company) => ({
             ...c,
@@ -215,6 +258,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
               seq: typeof x.seq === "number" ? x.seq : ++maxSeq,
             })),
           );
+          maxStSeq = maxSeq;
         }
         let grantArr: Grant[] = [];
         {
@@ -232,19 +276,26 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
             pauseEnd: x.pauseEnd ?? null,
           }));
           setGrants(grantArr);
+          maxGrSeq = maxSeq;
         }
         setLogs(
           (Array.isArray(d.logs) ? d.logs : []).map((l: LogEntry) => ({
             ...l,
             actor: fixActor(l.actor),
             // Backfill: grant entries written before attribution existed
-            // adopt the grant's CURRENT owner — exact unless the grant was
-            // reassigned pre-backfill (sandbox-acceptable).
+            // adopt the grant's CURRENT owner/pool — exact unless reassigned
+            // pre-backfill (sandbox-acceptable).
             ...(l.objectType === "grant" && l.stakeholderId === undefined
               ? {
                   stakeholderId:
                     grantArr.find((g) => g.id === l.objectId)?.stakeholderId ??
                     null,
+                }
+              : {}),
+            ...(l.objectType === "grant" && l.poolId === undefined
+              ? {
+                  poolId:
+                    grantArr.find((g) => g.id === l.objectId)?.poolId ?? null,
                 }
               : {}),
           })),
@@ -253,6 +304,14 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore corrupt storage */
     }
+    // monotonic ID counters: saved values win; else seed from current maxima
+    setSeqs(
+      loadedSeqs ?? { stakeholder: maxStSeq, grant: maxGrSeq },
+    );
+    // POOL-09: the General Pool always exists (fresh sandboxes included)
+    setPools((cur) =>
+      cur.some((p) => p.isGeneral) ? cur : [...cur, makeGeneralPool()],
+    );
     setHydrated(true);
   }, []);
 
@@ -260,10 +319,10 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     if (hydrated) {
       localStorage.setItem(
         KEY,
-        JSON.stringify({ pools, companies, stakeholders, grants, logs }),
+        JSON.stringify({ pools, companies, stakeholders, grants, logs, seqs }),
       );
     }
-  }, [pools, companies, stakeholders, grants, logs, hydrated]);
+  }, [pools, companies, stakeholders, grants, logs, seqs, hydrated]);
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
@@ -284,6 +343,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     action: LogAction,
     summary: string,
     stakeholderId?: string | null,
+    poolId?: string | null,
   ) => {
     setLogs((cur) => [
       {
@@ -295,6 +355,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         summary,
         actor: ME,
         ...(stakeholderId !== undefined ? { stakeholderId } : {}),
+        ...(poolId !== undefined ? { poolId } : {}),
       },
       ...cur,
     ]);
@@ -362,7 +423,8 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     t.charAt(0).toUpperCase() + t.slice(1);
 
   const addStakeholder: Sandbox["addStakeholder"] = (s) => {
-    const seq = stakeholders.reduce((mx, x) => Math.max(mx, x.seq), 0) + 1;
+    const seq = seqs.stakeholder + 1;
+    setSeqs((cur) => ({ ...cur, stakeholder: seq }));
     const st: Stakeholder = {
       ...s,
       id: uid(),
@@ -403,7 +465,8 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     id ? (pools.find((p) => p.id === id)?.name ?? "—") : "None";
 
   const addGrant: Sandbox["addGrant"] = (g) => {
-    const seq = grants.reduce((mx, x) => Math.max(mx, x.seq), 0) + 1;
+    const seq = seqs.grant + 1;
+    setSeqs((cur) => ({ ...cur, grant: seq }));
     const gr: Grant = {
       ...g,
       id: uid(),
@@ -412,7 +475,14 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       createdBy: ME,
     };
     setGrants((cur) => [...cur, gr]);
-    pushLog("grant", gr.id, "CREATE", "Grant created", gr.stakeholderId);
+    pushLog(
+      "grant",
+      gr.id,
+      "CREATE",
+      "Grant created",
+      gr.stakeholderId,
+      gr.poolId,
+    );
     flash(gr.id);
     return gr;
   };
@@ -468,12 +538,14 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
           : "pause removed — schedule recomputed",
       );
     }
-    // Attribution: entries belong to the CURRENT owner's timeline. On a
-    // reassignment, the previous owner's timeline keeps everything up to the
-    // move and additionally records where the grant went — so neither
-    // person's audit trail follows the wrong grant history (GBL-06).
+    // Attribution: entries belong to the CURRENT owner's timeline (person AND
+    // pool). On a reassignment/pool move, the previous timeline keeps its
+    // history plus a note of where the grant went (GBL-06).
     const owner = reassigned ? patch.stakeholderId! : old.stakeholderId;
-    if (parts.length) pushLog("grant", id, "UPDATE", parts.join("; "), owner);
+    const rePooled = patch.poolId !== undefined && patch.poolId !== old.poolId;
+    const ownerPool = rePooled ? (patch.poolId ?? null) : old.poolId;
+    if (parts.length)
+      pushLog("grant", id, "UPDATE", parts.join("; "), owner, ownerPool);
     if (reassigned)
       pushLog(
         "grant",
@@ -481,6 +553,16 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         "UPDATE",
         `grant reassigned to ${sname(patch.stakeholderId!)} — its history from here lives with them`,
         old.stakeholderId,
+        ownerPool,
+      );
+    if (rePooled && old.poolId)
+      pushLog(
+        "grant",
+        id,
+        "UPDATE",
+        `grant #${gidPad(old.seq)} moved to ${pname(patch.poolId ?? null)} — its history from here lives there`,
+        owner,
+        old.poolId,
       );
     flash(id);
   };
@@ -518,6 +600,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         "UPDATE",
         `vesting terminated from ${date} (person-level)`,
         stakeholderId,
+        g.poolId,
       ),
     );
     pushLog(
@@ -561,6 +644,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         "UPDATE",
         `vesting paused ${ps} → ${pe ?? "open-ended"} (person-level)`,
         stakeholderId,
+        g.poolId,
       ),
     );
     pushLog(
@@ -640,6 +724,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         "UPDATE",
         "termination removed — scheduled vesting resumes (person-level reinstate)",
         stakeholderId,
+        grants.find((g) => g.id === gid)?.poolId ?? null,
       ),
     );
     blocked.forEach((r) =>
@@ -649,6 +734,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         "UPDATE",
         `reinstate blocked — pool short ${r.shortfall.toLocaleString()} units; stays terminated (now grant-level)`,
         stakeholderId,
+        r.poolId,
       ),
     );
     pushLog(
@@ -687,6 +773,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         "UPDATE",
         "pause removed — schedule recomputed (person-level un-pause)",
         stakeholderId,
+        g.poolId,
       ),
     );
     pushLog(
@@ -713,8 +800,163 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         (sum, g) => sum + reservedUnits(g.quantity || 0, g.vesting, g.grantDate, g),
         0,
       );
+  // ---- deletes (GBL-09) — hard, irreversible; every delete logs, and the
+  // summary echoes onto the parent's timeline wherever one exists ----
+
+  const deleteGrant = (id: string) => {
+    const g = grants.find((x) => x.id === id);
+    if (!g) return;
+    const freed = reservedUnits(g.quantity, g.vesting, g.grantDate, g);
+    setGrants((cur) => cur.filter((x) => x.id !== id));
+    pushLog(
+      "grant",
+      id,
+      "DELETE",
+      `Grant #${gidPad(g.seq)} deleted — ${freed.toLocaleString()} reserved units ${g.poolId ? `returned to ${pname(g.poolId)}` : "released (no pool)"}`,
+      g.stakeholderId,
+      g.poolId,
+    );
+  };
+
+  const deleteStakeholder = (id: string) => {
+    const s = stakeholders.find((x) => x.id === id);
+    if (!s) return;
+    const gs = grants.filter((g) => g.stakeholderId === id);
+    // per-pool freed units for the summary entry
+    const freedByPool = new Map<string, number>();
+    gs.forEach((g) => {
+      const freed = reservedUnits(g.quantity, g.vesting, g.grantDate, g);
+      const key = g.poolId ? pname(g.poolId) : "no pool";
+      freedByPool.set(key, (freedByPool.get(key) ?? 0) + freed);
+      pushLog(
+        "grant",
+        g.id,
+        "DELETE",
+        `Grant #${gidPad(g.seq)} deleted with its stakeholder — ${freed.toLocaleString()} reserved units ${g.poolId ? `returned to ${pname(g.poolId)}` : "released"}`,
+        id,
+        g.poolId,
+      );
+    });
+    const perPool = [...freedByPool.entries()]
+      .map(([n, u]) => `${n} +${u.toLocaleString()}`)
+      .join(", ");
+    const who = `${s.firstName} ${s.lastName}`.trim() || "—";
+    setGrants((cur) => cur.filter((g) => g.stakeholderId !== id));
+    setStakeholders((cur) => cur.filter((x) => x.id !== id));
+    pushLog(
+      "stakeholder",
+      id,
+      "DELETE",
+      `Stakeholder ${who} (#${String(s.seq).padStart(6, "0")}) deleted — ${gs.length} grant${gs.length === 1 ? "" : "s"} deleted${perPool ? ` (units returned: ${perPool})` : ""}`,
+    );
+    if (s.companyId)
+      pushLog(
+        "company",
+        s.companyId,
+        "DELETE",
+        `stakeholder ${who} deleted (${gs.length} grant${gs.length === 1 ? "" : "s"} went with them)`,
+      );
+  };
+
+  const deleteCompany = (id: string) => {
+    const c = companies.find((x) => x.id === id);
+    if (!c) return;
+    const affPools = pools.filter((p) => p.companyId === id);
+    const affSts = stakeholders.filter((s) => s.companyId === id);
+    setPools((cur) =>
+      cur.map((p) => (p.companyId === id ? { ...p, companyId: null } : p)),
+    );
+    setStakeholders((cur) =>
+      cur.map((s) => (s.companyId === id ? { ...s, companyId: null } : s)),
+    );
+    // echo on every detached child's timeline
+    affPools.forEach((p) =>
+      pushLog("pool", p.id, "UPDATE", `company ${c.name} deleted — company set to —`),
+    );
+    affSts.forEach((s) =>
+      pushLog(
+        "stakeholder",
+        s.id,
+        "UPDATE",
+        `company ${c.name} deleted — company set to —`,
+      ),
+    );
+    setCompanies((cur) => cur.filter((x) => x.id !== id));
+    pushLog(
+      "company",
+      id,
+      "DELETE",
+      `Company ${c.name} deleted — ${affPools.length} pool${affPools.length === 1 ? "" : "s"} and ${affSts.length} stakeholder${affSts.length === 1 ? "" : "s"} detached (kept, company cleared)`,
+    );
+  };
+
+  // plan: per-grant disposition; anything unlisted defaults to General Pool.
+  // Capacity is validated by the wizard UI pre-flight; the General Pool never
+  // blocks (infinite).
+  const deletePool = (
+    id: string,
+    plan: Record<
+      string,
+      { action: "move"; poolId: string | null } | { action: "delete" }
+    >,
+  ) => {
+    const p = pools.find((x) => x.id === id);
+    if (!p || p.isGeneral) return;
+    const general = pools.find((x) => x.isGeneral) ?? null;
+    const gs = grants.filter((g) => g.poolId === id);
+    let moved = 0;
+    let removed = 0;
+    gs.forEach((g) => {
+      const d = plan[g.id] ?? { action: "move" as const, poolId: general?.id ?? null };
+      if (d.action === "delete") {
+        removed++;
+        const freed = reservedUnits(g.quantity, g.vesting, g.grantDate, g);
+        pushLog(
+          "grant",
+          g.id,
+          "DELETE",
+          `Grant #${gidPad(g.seq)} deleted with pool ${p.name} (${freed.toLocaleString()} reserved units released)`,
+          g.stakeholderId,
+          id,
+        );
+      } else {
+        moved++;
+        pushLog(
+          "grant",
+          g.id,
+          "UPDATE",
+          `pool ${p.name} → ${pname(d.poolId)} (pool deleted)`,
+          g.stakeholderId,
+          d.poolId,
+        );
+      }
+    });
+    setGrants((cur) =>
+      cur.flatMap((g) => {
+        if (g.poolId !== id) return [g];
+        const d = plan[g.id] ?? { action: "move" as const, poolId: general?.id ?? null };
+        return d.action === "delete" ? [] : [{ ...g, poolId: d.poolId }];
+      }),
+    );
+    setPools((cur) => cur.filter((x) => x.id !== id));
+    pushLog(
+      "pool",
+      id,
+      "DELETE",
+      `Pool ${p.name} deleted — ${moved} grant${moved === 1 ? "" : "s"} transferred, ${removed} deleted`,
+    );
+  };
+
   const logsFor = (objectId: string) =>
     logs.filter((l) => l.objectId === objectId);
+  // A pool's audit = its own entries + every grant entry attributed to it
+  // (drawn-from pool at write time) — granting/vesting events roll up here.
+  const logsForPool = (poolId: string) =>
+    logs.filter(
+      (l) =>
+        l.objectId === poolId ||
+        (l.objectType === "grant" && l.poolId === poolId),
+    );
   // A stakeholder's audit = their own entries + every grant entry ATTRIBUTED
   // to them (owner at write time — reassigned grants' earlier history stays
   // on the previous owner's timeline).
@@ -725,11 +967,12 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         (l.objectType === "grant" && l.stakeholderId === stakeholderId),
     );
   const resetSandbox = () => {
-    setPools([]);
+    setPools([makeGeneralPool()]); // the General Pool is inherent — reborn
     setCompanies([]);
     setStakeholders([]);
     setGrants([]);
     setLogs([]);
+    setSeqs({ stakeholder: 0, grant: 0 });
   };
 
   return (
@@ -761,6 +1004,11 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
         grantedFor,
         logsFor,
         logsForStakeholder,
+        logsForPool,
+        deleteGrant,
+        deleteStakeholder,
+        deleteCompany,
+        deletePool,
         resetSandbox,
         toast,
         notify,

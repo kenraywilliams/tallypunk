@@ -29,6 +29,7 @@ export default function AppNav() {
     "/pools",
     "/companies",
     "/reports",
+    "/audit",
     "/import",
     "/export",
   ].some(active);
@@ -70,6 +71,9 @@ export default function AppNav() {
             </Link>
             <Link className="menu-item" href="/reports">
               <span className="mi">▤</span>Reports
+            </Link>
+            <Link className="menu-item" href="/audit">
+              <span className="mi">▥</span>Audit log
             </Link>
             <div className="menu-sep" />
             <div className="menu-grp">Data</div>

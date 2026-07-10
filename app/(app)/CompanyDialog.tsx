@@ -17,11 +17,20 @@ export default function CompanyDialog({
   onClose: () => void;
   onCreated?: (c: Company) => void;
 }) {
-  const { companies, addCompany, updateCompany, poolsForCompany } = useSandbox();
+  const {
+    companies,
+    stakeholders,
+    addCompany,
+    updateCompany,
+    deleteCompany,
+    poolsForCompany,
+    notify,
+  } = useSandbox();
   const [editing, setEditing] = useState(company ? !!startEdit : true);
   const [name, setName] = useState(company?.name ?? "");
   const [error, setError] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [poolView, setPoolView] = useState<Pool | null>(null);
 
   const submit = () => {
@@ -125,15 +134,69 @@ export default function CompanyDialog({
             Created {new Date(company.createdAt).toLocaleString()} by{" "}
             {company.createdBy}
           </div>
-          <div className="modal-actions">
-            <button className="btn btn-ghost btn-sm" onClick={() => setLogOpen(true)}>
-              Audit log
-            </button>
-            <span style={{ flex: 1 }} />
-            <button className="btn btn-pri" onClick={() => setEditing(true)}>
-              Edit
-            </button>
-          </div>
+
+          {deleting && (
+            <div
+              style={{
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginTop: 6,
+                background: "var(--bg)",
+              }}
+            >
+              <p style={{ fontSize: 12.5, color: "var(--muted)", margin: 0 }}>
+                <strong>
+                  Nothing else is deleted — children are detached, kept.
+                </strong>{" "}
+                {(() => {
+                  const nPools = poolsForCompany(company.id).length;
+                  const nSts = stakeholders.filter(
+                    (s) => s.companyId === company.id,
+                  ).length;
+                  return `${nPools} pool${nPools === 1 ? "" : "s"} and ${nSts} stakeholder${nSts === 1 ? "" : "s"} will have their company cleared to "—" (noted on each of their audit logs).`;
+                })()}{" "}
+                The delete itself is permanent.
+              </p>
+              <div className="modal-actions">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setDeleting(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-pri"
+                  onClick={() => {
+                    deleteCompany(company.id);
+                    notify(`${company.name} deleted — children detached`);
+                    onClose();
+                  }}
+                >
+                  Delete company
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!deleting && (
+            <div className="modal-actions">
+              <button className="btn btn-ghost btn-sm" onClick={() => setLogOpen(true)}>
+                Audit log
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ color: "#b23b3b", borderColor: "#e0b7b0" }}
+                onClick={() => setDeleting(true)}
+              >
+                Delete…
+              </button>
+              <span style={{ flex: 1 }} />
+              <button className="btn btn-pri" onClick={() => setEditing(true)}>
+                Edit
+              </button>
+            </div>
+          )}
         </>
       ) : null}
 

@@ -207,6 +207,7 @@ export default function GrantDialog({
     grantedFor,
     addGrant,
     updateGrant,
+    deleteGrant,
     notify,
   } = useSandbox();
   // The prop is a SNAPSHOT taken when the row was clicked. After a lifecycle
@@ -236,7 +237,7 @@ export default function GrantDialog({
 
   // ---- lifecycle (GRANT-16/17) — view-mode panels ----
   const [panel, setPanel] = useState<
-    null | "terminate" | "pause" | "unterminate" | "removepause"
+    null | "terminate" | "pause" | "unterminate" | "removepause" | "delete"
   >(null);
   const [termDraft, setTermDraft] = useState(todayISO());
   const [amendDraft, setAmendDraft] = useState(""); // amend termination date
@@ -1286,6 +1287,66 @@ export default function GrantDialog({
             </div>
           )}
 
+          {panel === "delete" && (
+            <div style={boxS}>
+              <p style={{ fontSize: 12.5, color: "var(--muted)", margin: 0 }}>
+                <strong style={{ color: "#b23b3b" }}>
+                  Delete is permanent
+                </strong>{" "}
+                — the grant is removed from every list, chart and report (its
+                audit trail survives on the stakeholder's and pool's logs).
+                This is <strong>not</strong> Terminate: use{" "}
+                <strong>Terminate vesting</strong> for a leaver.{" "}
+                {(() => {
+                  const vested = Math.floor(
+                    grant.quantity *
+                      vestedFraction(
+                        grant.vesting,
+                        grant.grantDate,
+                        todayISO(),
+                        grant,
+                      ),
+                  );
+                  const freed = reservedUnits(
+                    grant.quantity,
+                    grant.vesting,
+                    grant.grantDate,
+                    grant,
+                  );
+                  return (
+                    <>
+                      {vested > 0 && (
+                        <strong style={{ color: "#b23b3b" }}>
+                          {vested.toLocaleString()} units have already vested —
+                          deleting erases that record.{" "}
+                        </strong>
+                      )}
+                      {freed.toLocaleString()} reserved units{" "}
+                      {grantPool
+                        ? `return to ${grantPool.name}.`
+                        : "are released (no pool)."}
+                    </>
+                  );
+                })()}
+              </p>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setPanel(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-pri"
+                  onClick={() => {
+                    deleteGrant(grant.id);
+                    notify(`Grant #${gid(grant.seq)} deleted`);
+                    onClose();
+                  }}
+                >
+                  Delete grant
+                </button>
+              </div>
+            </div>
+          )}
+
           {panel === "removepause" && (
             <div style={boxS}>
               <p style={{ fontSize: 12.5, color: "var(--muted)", margin: 0 }}>
@@ -1380,6 +1441,13 @@ export default function GrantDialog({
                 onClick={() => setLogOpen(true)}
               >
                 Audit log
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                style={{ color: "#b23b3b", borderColor: "#e0b7b0" }}
+                onClick={() => setPanel("delete")}
+              >
+                Delete…
               </button>
               {grant.terminationDate ? (
                 <button
