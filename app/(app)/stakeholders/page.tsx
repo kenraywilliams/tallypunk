@@ -8,7 +8,12 @@ import EditIcon from "../EditIcon";
 import CreateStakeholderModal from "./CreateStakeholderModal";
 import { idLabel, stakeholderStatus, typeLabel } from "./util";
 import { StatusChip } from "../grants/GrantDialog";
-import { FilterFunnel, useColumnFilters, useRowFlip } from "../listview";
+import {
+  FilterFunnel,
+  useColumnFilters,
+  useHeaderDrag,
+  useRowFlip,
+} from "../listview";
 import { todayISO, vestedUnits } from "../grants/vesting";
 
 const STATUS_ORDER = ["Vesting", "Paused", "Fully vested", "Terminated", "—"];
@@ -26,8 +31,10 @@ import {
 export default function StakeholdersPage() {
   const { stakeholders, companies, grantsForStakeholder, hydrated, flashId } =
     useSandbox();
-  const { visible, sortKey, sortDir, toggleCol, moveCol, cycleSort } =
+  const { visible, sortKey, sortDir, toggleCol, moveCol, reorderCol, cycleSort } =
     useStakeholderView();
+  // drag the REAL column headers to reorder (arrows in the menu still work)
+  const { thProps } = useHeaderDrag(visible, reorderCol);
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [companyDialog, setCompanyDialog] = useState<Company | null>(null);
@@ -323,7 +330,7 @@ export default function StakeholdersPage() {
                   ? (key as FilterCol)
                   : null;
                 return (
-                  <th key={key}>
+                  <th key={key} {...thProps(key)}>
                     {/* funnel BEFORE the name, one non-wrapping row —
                         wrapping changed header height and broke the
                         sticky-header borders */}

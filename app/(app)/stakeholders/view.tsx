@@ -112,6 +112,7 @@ interface ViewCtx {
   sortDir: Dir;
   toggleCol: (k: ColKey) => void;
   moveCol: (k: ColKey, dir: "up" | "down") => void;
+  reorderCol: (k: ColKey, target: ColKey) => void;
   cycleSort: (k: ColKey) => void;
   navField: NavField;
   navDir: Dir;
@@ -210,6 +211,19 @@ export function StakeholderViewProvider({
       return next;
     });
 
+  // drag-and-drop: drop k onto `target` — before it when dragged up, after
+  // it when dragged down
+  const reorderCol = (k: ColKey, target: ColKey) =>
+    setOrder((cur) => {
+      if (k === target) return cur;
+      const vis = cur.filter((x) => shown.includes(x));
+      const movingDown = vis.indexOf(k) < vis.indexOf(target);
+      const next = cur.filter((x) => x !== k);
+      const ti = next.indexOf(target);
+      next.splice(movingDown ? ti + 1 : ti, 0, k);
+      return next;
+    });
+
   const cycleSort = (k: ColKey) => {
     if (sortKey === k) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -237,6 +251,7 @@ export function StakeholderViewProvider({
         sortDir,
         toggleCol,
         moveCol,
+        reorderCol,
         cycleSort,
         navField,
         navDir,

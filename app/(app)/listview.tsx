@@ -107,6 +107,19 @@ export function useListView<K extends string>(
       return next;
     });
 
+  // drag-and-drop: drop k onto `target` — lands before it when dragged up,
+  // after it when dragged down (matches where the eye expects it)
+  const reorderCol = (k: K, target: K) =>
+    setOrder((cur) => {
+      if (k === target) return cur;
+      const vis = cur.filter((x) => shown.includes(x));
+      const movingDown = vis.indexOf(k) < vis.indexOf(target);
+      const next = cur.filter((x) => x !== k);
+      const ti = next.indexOf(target);
+      next.splice(movingDown ? ti + 1 : ti, 0, k);
+      return next;
+    });
+
   const cycleSort = (k: K) => {
     if (sortKey === k) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
@@ -115,7 +128,16 @@ export function useListView<K extends string>(
     }
   };
 
-  return { hydrated, visible, sortKey, sortDir, toggleCol, moveCol, cycleSort };
+  return {
+    hydrated,
+    visible,
+    sortKey,
+    sortDir,
+    toggleCol,
+    moveCol,
+    reorderCol,
+    cycleSort,
+  };
 }
 
 export function sortRows<T, K extends string>(
@@ -352,6 +374,61 @@ export function FilterFunnel({
         )}
     </>
   );
+}
+
+// Drag-and-drop for the REAL table headers (not the menu — the columns
+// themselves are the natural drag targets, and only existing columns have a
+// position to drag). Spread `thProps(key)` onto each data <th>.
+export function useHeaderDrag<K extends string>(
+  visible: K[],
+  reorderCol: (k: K, target: K) => void,
+) {
+  const [dragKey, setDragKey] = useState<K | null>(null);
+  const [overKey, setOverKey] = useState<K | null>(null);
+  const thProps = (key: K) => {
+    // insertion edge: dragging rightwards lands AFTER the target (right edge
+    // lights up), leftwards lands BEFORE it (left edge)
+    const side =
+      dragKey && overKey === key && dragKey !== key
+        ? visible.indexOf(dragKey) < visible.indexOf(key)
+          ? "right"
+          : "left"
+        : null;
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        setDragKey(key);
+        e.dataTransfer.effectAllowed = "move";
+      },
+      onDragOver: (e: React.DragEvent) => {
+        if (!dragKey || dragKey === key) return;
+        e.preventDefault();
+        setOverKey(key);
+      },
+      onDragLeave: () => setOverKey((c) => (c === key ? null : c)),
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        if (dragKey && dragKey !== key) reorderCol(dragKey, key);
+        setDragKey(null);
+        setOverKey(null);
+      },
+      onDragEnd: () => {
+        setDragKey(null);
+        setOverKey(null);
+      },
+      style: {
+        opacity: dragKey === key ? 0.45 : undefined,
+        boxShadow:
+          side === "right"
+            ? "inset -3px 0 0 var(--accent)"
+            : side === "left"
+              ? "inset 3px 0 0 var(--accent)"
+              : undefined,
+        cursor: "grab",
+      } as React.CSSProperties,
+    };
+  };
+  return { thProps };
 }
 
 export function ColumnsMenu<K extends string>({

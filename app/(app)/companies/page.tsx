@@ -5,7 +5,13 @@ import { useSandbox, type Company, type Pool } from "../SandboxProvider";
 import CompanyDialog from "../CompanyDialog";
 import EditIcon from "../EditIcon";
 import PoolDialog from "../pools/PoolDialog";
-import { ColumnsMenu, sortRows, useListView, type ColDef } from "../listview";
+import {
+  ColumnsMenu,
+  sortRows,
+  useHeaderDrag,
+  useListView,
+  type ColDef,
+} from "../listview";
 
 type CompanyCol = "name" | "pools" | "created";
 const COLS: ColDef<CompanyCol>[] = [
@@ -17,8 +23,10 @@ const DEFAULT: CompanyCol[] = ["name", "pools"];
 
 export default function CompaniesPage() {
   const { companies, hydrated, poolsForCompany, flashId } = useSandbox();
-  const { visible, sortKey, sortDir, toggleCol, moveCol, cycleSort } =
+  const { visible, sortKey, sortDir, toggleCol, moveCol, reorderCol, cycleSort } =
     useListView<CompanyCol>("tallypunk-companies-view", COLS, DEFAULT, "name");
+  // drag the REAL column headers to reorder (arrows in the menu still work)
+  const { thProps } = useHeaderDrag(visible, reorderCol);
   const [dialog, setDialog] = useState<{
     company?: Company;
     edit?: boolean;
@@ -123,7 +131,7 @@ export default function CompaniesPage() {
                   if (!col) return null;
                   const on = sortKey === key;
                   return (
-                    <th key={key}>
+                    <th key={key} {...thProps(key)}>
                       <button
                         className={"th-sort" + (on ? " on" : "")}
                         onClick={() => cycleSort(key)}

@@ -9,6 +9,7 @@ import {
   FilterFunnel,
   sortRows,
   useColumnFilters,
+  useHeaderDrag,
   useListView,
   type ColDef,
 } from "../listview";
@@ -84,7 +85,7 @@ const FILTER_COLS: FilterCol[] = ["stakeholder", "pool", "status"];
 
 export default function GrantsPage() {
   const { grants, stakeholders, pools, hydrated, flashId } = useSandbox();
-  const { visible, sortKey, sortDir, toggleCol, moveCol, cycleSort } =
+  const { visible, sortKey, sortDir, toggleCol, moveCol, reorderCol, cycleSort } =
     useListView<GrantCol>(
       "tallypunk-grants-view",
       COLS,
@@ -94,6 +95,8 @@ export default function GrantsPage() {
     );
   const { filters, setFilter, clearAll, active, passes } =
     useColumnFilters<FilterCol>();
+  // drag the REAL column headers to reorder (arrows in the menu still work)
+  const { thProps } = useHeaderDrag(visible, reorderCol);
   const [dialog, setDialog] = useState<{
     grant?: Grant;
     edit?: boolean;
@@ -285,7 +288,7 @@ export default function GrantsPage() {
                           ? key
                           : null;
                     return (
-                      <th key={key}>
+                      <th key={key} {...thProps(key)}>
                         {/* funnel BEFORE the name, one non-wrapping row —
                             wrapping changed header height and broke the
                             sticky-header borders */}
