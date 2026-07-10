@@ -239,6 +239,7 @@ export default function GrantDialog({
     null | "terminate" | "pause" | "unterminate" | "removepause"
   >(null);
   const [termDraft, setTermDraft] = useState(todayISO());
+  const [amendDraft, setAmendDraft] = useState(""); // amend termination date
   const [psDraft, setPsDraft] = useState(grant?.pauseStart ?? todayISO());
   const [peDraft, setPeDraft] = useState(grant?.pauseEnd ?? "");
 
@@ -489,6 +490,34 @@ export default function GrantDialog({
     setPanel(null);
   };
 
+  // Amend the termination date in place (GRANT-16 refinement, 9 Jul 2026).
+  // Moving it LATER re-reserves more units — guard the pool like un-terminate.
+  const amendShort = (() => {
+    if (
+      !grant?.terminationDate ||
+      !amendDraft ||
+      !grantPool ||
+      grantPool.quantity == null
+    )
+      return 0;
+    const cur = reservedUnits(grant.quantity, grant.vesting, grant.grantDate, grant);
+    const next = reservedUnits(grant.quantity, grant.vesting, grant.grantDate, {
+      terminationDate: amendDraft,
+      pauseStart: grant.pauseStart,
+      pauseEnd: grant.pauseEnd,
+    });
+    const delta = next - cur;
+    const remaining = grantPool.quantity - grantedFor(grantPool.id);
+    return delta > remaining ? delta - remaining : 0;
+  })();
+
+  const doAmendTermination = () => {
+    if (!grant || !amendDraft || amendShort > 0) return;
+    updateGrant(grant.id, { terminationDate: amendDraft });
+    notify(`Termination date moved to ${amendDraft}`);
+    setPanel(null);
+  };
+
   const pauseInvalid = !psDraft || (!!peDraft && peDraft < psDraft);
   const doPause = () => {
     if (!grant || pauseInvalid) return;
@@ -553,6 +582,10 @@ export default function GrantDialog({
             ? `Vesting paused ${grant.pauseStart} → ${grant.pauseEnd} — the schedule shifts by the pause length.`
             : `Vesting paused since ${grant.pauseStart} (open-ended) — flat until resumed.`}{" "}
           Units stay reserved in the pool.
+          {grant.terminationDate &&
+            grant.pauseStart &&
+            grant.pauseStart >= grant.terminationDate &&
+            " This pause starts after the termination, so it currently has no effect — kept in case the termination is removed."}
         </div>
       )}
     </>
@@ -1197,6 +1230,42 @@ export default function GrantDialog({
                   capacity or expand the pool first.
                 </div>
               )}
+              {/* third option: keep the termination, just move its date */}
+              <label className="lab" style={{ marginTop: 12 }}>
+                …or amend the termination date (currently{" "}
+                {grant.terminationDate})
+              </label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  className="inp"
+                  type="date"
+                  style={{ maxWidth: 200 }}
+                  value={amendDraft}
+                  onChange={(e) => setAmendDraft(e.target.value)}
+                />
+                <button
+                  className="btn btn-ghost"
+                  disabled={
+                    !amendDraft ||
+                    amendDraft === grant.terminationDate ||
+                    amendShort > 0
+                  }
+                  title={
+                    amendShort > 0 && grantPool
+                      ? `Moving it later needs more units than ${grantPool.name} has — short ${amendShort.toLocaleString()}`
+                      : undefined
+                  }
+                  onClick={doAmendTermination}
+                >
+                  Amend date
+                </button>
+              </div>
+              {amendShort > 0 && grantPool && (
+                <p style={{ fontSize: 12, color: "#b23b3b", fontWeight: 600, marginTop: 6 }}>
+                  Moving the date later re-reserves more units —{" "}
+                  {grantPool.name} is {amendShort.toLocaleString()} short.
+                </p>
+              )}
               <div className="modal-actions">
                 <button className="btn btn-ghost" onClick={() => setPanel(null)}>
                   Cancel
@@ -1315,7 +1384,10 @@ export default function GrantDialog({
               {grant.terminationDate ? (
                 <button
                   className="btn btn-ghost"
-                  onClick={() => setPanel("unterminate")}
+                  onClick={() => {
+                    setAmendDraft(grant.terminationDate ?? "");
+                    setPanel("unterminate");
+                  }}
                 >
                   Un-terminate…
                 </button>

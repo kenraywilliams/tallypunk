@@ -8,7 +8,7 @@ import EditIcon from "../EditIcon";
 import CreateStakeholderModal from "./CreateStakeholderModal";
 import { idLabel, stakeholderStatus, typeLabel } from "./util";
 import { StatusChip } from "../grants/GrantDialog";
-import { FilterFunnel, useColumnFilters } from "../listview";
+import { FilterFunnel, useColumnFilters, useRowFlip } from "../listview";
 import { todayISO, vestedUnits } from "../grants/vesting";
 
 const STATUS_ORDER = ["Vesting", "Paused", "Fully vested", "Terminated", "—"];
@@ -33,6 +33,16 @@ export default function StakeholdersPage() {
   const [companyDialog, setCompanyDialog] = useState<Company | null>(null);
   const [colsOpen, setColsOpen] = useState(false);
   const colsRef = useRef<HTMLDivElement>(null);
+  // reticking a hidden column returns it to its remembered slot — flash the
+  // row so the eye lands on WHERE it went
+  const [colFlash, setColFlash] = useState<ColKey | null>(null);
+  const colFlashTimer = useRef<number | undefined>(undefined);
+  const flashCol = (k: ColKey) => {
+    setColFlash(k);
+    if (colFlashTimer.current) window.clearTimeout(colFlashTimer.current);
+    colFlashTimer.current = window.setTimeout(() => setColFlash(null), 1600);
+  };
+  const { register, snap } = useRowFlip(visible); // rows glide on reorder
 
   useEffect(() => {
     // mousedown, NOT click: toggling a column moves its row between the
@@ -186,12 +196,21 @@ export default function StakeholdersPage() {
               </button>
               {colsOpen && (
                 <div className="colmenu">
-                  <div className="colmenu-h">Displayed — order with ↑ ↓</div>
+                  <div className="colmenu-h">Displayed</div>
                   {visible.map((key, i) => {
                     const col = ALL_COLS.find((c) => c.key === key);
                     if (!col) return null;
                     return (
-                      <div key={key} className="colmenu-item">
+                      <div
+                        key={key}
+                        ref={register(key)}
+                        className="colmenu-item"
+                        style={{
+                          background:
+                            colFlash === key ? "var(--accent-soft)" : undefined,
+                          borderRadius: 6,
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked
@@ -202,7 +221,10 @@ export default function StakeholdersPage() {
                           className="colmove"
                           aria-label="Move up"
                           disabled={i === 0}
-                          onClick={() => moveCol(key, "up")}
+                          onClick={() => {
+                            snap(); // measure first — then the swap glides
+                            moveCol(key, "up");
+                          }}
                         >
                           ↑
                         </button>
@@ -210,7 +232,10 @@ export default function StakeholdersPage() {
                           className="colmove"
                           aria-label="Move down"
                           disabled={i === visible.length - 1}
-                          onClick={() => moveCol(key, "down")}
+                          onClick={() => {
+                            snap();
+                            moveCol(key, "down");
+                          }}
                         >
                           ↓
                         </button>
@@ -226,7 +251,10 @@ export default function StakeholdersPage() {
                           <input
                             type="checkbox"
                             checked={false}
-                            onChange={() => toggleCol(col.key)}
+                            onChange={() => {
+                              toggleCol(col.key);
+                              flashCol(col.key); // show where it re-slotted
+                            }}
                           />
                           <span className="colmenu-lbl">{col.label}</span>
                         </label>

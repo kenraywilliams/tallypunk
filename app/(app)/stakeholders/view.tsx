@@ -127,24 +127,49 @@ export function StakeholderViewProvider({
   children: React.ReactNode;
 }) {
   const [hydrated, setHydrated] = useState(false);
-  const [visible, setVisible] = useState<ColKey[]>(DEFAULT_VISIBLE);
+  // `order` holds EVERY column exactly once — hidden columns keep their slot,
+  // so reticking one returns it to where it was, not to the end (GBL-05).
+  const buildOrder = (vis: ColKey[]): ColKey[] => [
+    ...vis,
+    ...ALL_COLS.map((c) => c.key).filter((k) => !vis.includes(k)),
+  ];
+  const [order, setOrder] = useState<ColKey[]>(() =>
+    buildOrder(DEFAULT_VISIBLE),
+  );
+  const [shown, setShown] = useState<ColKey[]>(DEFAULT_VISIBLE);
   const [sortKey, setSortKey] = useState<ColKey>("id");
   const [sortDir, setSortDir] = useState<Dir>("asc");
   const [navField, setNavField] = useState<NavField>("first");
   const [navDir, setNavDir] = useState<Dir>("asc");
+  const visible = order.filter((k) => shown.includes(k));
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(VKEY);
       if (raw) {
         const d = JSON.parse(raw);
-        if (Array.isArray(d.visible) && d.visible.length)
-          // saved prefs predate the Status column → join it in once (STK-06)
-          setVisible(
-            d.visible.includes("status")
-              ? d.visible
-              : [...d.visible, "status"],
-          );
+        const keys = ALL_COLS.map((c) => c.key);
+        const valid = (arr: unknown): ColKey[] =>
+          Array.isArray(arr)
+            ? arr.filter((k: unknown): k is ColKey => keys.includes(k as ColKey))
+            : [];
+        // saved prefs may predate the Status column → join it in (STK-06)
+        const withStatus = (v: ColKey[]): ColKey[] =>
+          v.includes("status") ? v : [...v, "status"];
+        if (Array.isArray(d.order)) {
+          const ord = valid(d.order);
+          keys.forEach((k) => {
+            if (!ord.includes(k)) ord.push(k);
+          });
+          if (ord.length) {
+            setOrder(ord);
+            setShown(withStatus(valid(d.shown)));
+          }
+        } else if (Array.isArray(d.visible) && d.visible.length) {
+          const v = withStatus(valid(d.visible));
+          setOrder(buildOrder(v));
+          setShown(v);
+        }
         if (typeof d.sortKey === "string") setSortKey(d.sortKey);
         if (d.sortDir === "asc" || d.sortDir === "desc") setSortDir(d.sortDir);
         if (d.navField === "first" || d.navField === "last")
@@ -161,22 +186,27 @@ export function StakeholderViewProvider({
     if (hydrated)
       localStorage.setItem(
         VKEY,
-        JSON.stringify({ visible, sortKey, sortDir, navField, navDir }),
+        JSON.stringify({ order, shown, sortKey, sortDir, navField, navDir }),
       );
-  }, [visible, sortKey, sortDir, navField, navDir, hydrated]);
+  }, [order, shown, sortKey, sortDir, navField, navDir, hydrated]);
 
+  // visibility only — the column's slot in `order` survives the round-trip
   const toggleCol = (k: ColKey) =>
-    setVisible((cur) =>
+    setShown((cur) =>
       cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k],
     );
 
+  // arrows move relative to the neighbouring VISIBLE column, recorded in order
   const moveCol = (k: ColKey, dir: "up" | "down") =>
-    setVisible((cur) => {
-      const i = cur.indexOf(k);
+    setOrder((cur) => {
+      const vis = cur.filter((x) => shown.includes(x));
+      const i = vis.indexOf(k);
       const j = dir === "up" ? i - 1 : i + 1;
-      if (i === -1 || j < 0 || j >= cur.length) return cur;
-      const next = [...cur];
-      [next[i], next[j]] = [next[j], next[i]];
+      if (i === -1 || j < 0 || j >= vis.length) return cur;
+      const neighbor = vis[j];
+      const next = cur.filter((x) => x !== k);
+      const ni = next.indexOf(neighbor);
+      next.splice(dir === "up" ? ni : ni + 1, 0, k);
       return next;
     });
 

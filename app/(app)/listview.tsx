@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export type SortDir = "asc" | "desc";
@@ -25,9 +25,18 @@ export function useListView<K extends string>(
   migrate?: (visible: K[]) => K[],
 ) {
   const [hydrated, setHydrated] = useState(false);
-  const [visible, setVisible] = useState<K[]>(defaultVisible);
+  // `order` holds EVERY column exactly once — hidden columns keep their slot,
+  // so reticking one returns it to where it was, not to the end (GBL-05).
+  // `shown` is just membership; the displayed list = order ∩ shown.
+  const buildOrder = (vis: K[]): K[] => [
+    ...vis,
+    ...allCols.map((c) => c.key).filter((k) => !vis.includes(k)),
+  ];
+  const [order, setOrder] = useState<K[]>(() => buildOrder(defaultVisible));
+  const [shown, setShown] = useState<K[]>(defaultVisible);
   const [sortKey, setSortKey] = useState<K>(defaultSortKey);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const visible = order.filter((k) => shown.includes(k));
 
   useEffect(() => {
     try {
@@ -35,11 +44,29 @@ export function useListView<K extends string>(
       if (raw) {
         const d = JSON.parse(raw);
         const keys = allCols.map((c) => c.key);
-        if (Array.isArray(d.visible)) {
-          const v = d.visible.filter((k: unknown): k is K =>
-            keys.includes(k as K),
-          );
-          if (v.length) setVisible(migrate ? migrate(v) : v);
+        const valid = (arr: unknown): K[] =>
+          Array.isArray(arr)
+            ? arr.filter((k: unknown): k is K => keys.includes(k as K))
+            : [];
+        if (Array.isArray(d.order)) {
+          // new shape: order + shown
+          const ord = valid(d.order);
+          keys.forEach((k) => {
+            if (!ord.includes(k)) ord.push(k); // new columns join at the end
+          });
+          const shn = valid(d.shown);
+          if (ord.length) {
+            setOrder(ord);
+            setShown(migrate ? migrate(shn) : shn);
+          }
+        } else if (Array.isArray(d.visible)) {
+          // old shape: a single visible list — migrate then derive the order
+          let v = valid(d.visible);
+          if (v.length) {
+            if (migrate) v = migrate(v);
+            setOrder(buildOrder(v));
+            setShown(v);
+          }
         }
         if (keys.includes(d.sortKey)) setSortKey(d.sortKey);
         if (d.sortDir === "asc" || d.sortDir === "desc") setSortDir(d.sortDir);
@@ -55,22 +82,28 @@ export function useListView<K extends string>(
     if (hydrated)
       localStorage.setItem(
         storageKey,
-        JSON.stringify({ visible, sortKey, sortDir }),
+        JSON.stringify({ order, shown, sortKey, sortDir }),
       );
-  }, [visible, sortKey, sortDir, hydrated, storageKey]);
+  }, [order, shown, sortKey, sortDir, hydrated, storageKey]);
 
+  // visibility only — the column's slot in `order` survives the round-trip
   const toggleCol = (k: K) =>
-    setVisible((cur) =>
+    setShown((cur) =>
       cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k],
     );
 
+  // arrows move relative to the neighbouring VISIBLE column, but the change
+  // is recorded in `order` so hidden columns ride along sensibly
   const moveCol = (k: K, dir: "up" | "down") =>
-    setVisible((cur) => {
-      const i = cur.indexOf(k);
+    setOrder((cur) => {
+      const vis = cur.filter((x) => shown.includes(x));
+      const i = vis.indexOf(k);
       const j = dir === "up" ? i - 1 : i + 1;
-      if (i === -1 || j < 0 || j >= cur.length) return cur;
-      const next = [...cur];
-      [next[i], next[j]] = [next[j], next[i]];
+      if (i === -1 || j < 0 || j >= vis.length) return cur;
+      const neighbor = vis[j];
+      const next = cur.filter((x) => x !== k);
+      const ni = next.indexOf(neighbor);
+      next.splice(dir === "up" ? ni : ni + 1, 0, k);
       return next;
     });
 
@@ -97,6 +130,42 @@ export function sortRows<T, K extends string>(
     const c = va < vb ? -1 : va > vb ? 1 : 0;
     return dir === "asc" ? c : -c;
   });
+}
+
+// FLIP micro-animation for the columns menu: call `snap()` right before a
+// reorder, and rows that changed position glide there (~150ms — fast enough
+// to spam the arrows, visible enough that the eye follows the swap).
+export function useRowFlip(dep: unknown) {
+  const rows = useRef(new Map<string, HTMLElement>());
+  const prev = useRef<Map<string, number> | null>(null);
+  const register = (k: string) => (el: HTMLElement | null) => {
+    if (el) rows.current.set(k, el);
+    else rows.current.delete(k);
+  };
+  const snap = () => {
+    const m = new Map<string, number>();
+    rows.current.forEach((el, k) => m.set(k, el.getBoundingClientRect().top));
+    prev.current = m;
+  };
+  useLayoutEffect(() => {
+    if (!prev.current) return;
+    const before = prev.current;
+    prev.current = null;
+    rows.current.forEach((el, k) => {
+      const old = before.get(k);
+      if (old == null) return;
+      const d = old - el.getBoundingClientRect().top;
+      if (!d) return;
+      el.style.transition = "none";
+      el.style.transform = `translateY(${d}px)`;
+      requestAnimationFrame(() => {
+        el.style.transition = "transform .15s ease";
+        el.style.transform = "";
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dep]);
+  return { register, snap };
 }
 
 // ---- per-column value filters (GBL-05 filters, 9 Jul 2026) ----
@@ -297,6 +366,16 @@ export function ColumnsMenu<K extends string>({
   moveCol: (k: K, dir: "up" | "down") => void;
 }) {
   const [open, setOpen] = useState(false);
+  // reticking a hidden column returns it to its remembered slot — flash that
+  // row so the eye lands on WHERE it went
+  const [flash, setFlash] = useState<K | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
+  const flashKey = (k: K) => {
+    setFlash(k);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(null), 1600);
+  };
+  const { register, snap } = useRowFlip(visible); // rows glide on reorder
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -326,19 +405,30 @@ export function ColumnsMenu<K extends string>({
       </button>
       {open && (
         <div className="colmenu">
-          <div className="colmenu-h">Displayed — order with ↑ ↓</div>
+          <div className="colmenu-h">Displayed</div>
           {visible.map((key, i) => {
             const col = allCols.find((c) => c.key === key);
             if (!col) return null;
             return (
-              <div key={key} className="colmenu-item">
+              <div
+                key={key}
+                ref={register(key)}
+                className="colmenu-item"
+                style={{
+                  background: flash === key ? "var(--accent-soft)" : undefined,
+                  borderRadius: 6,
+                }}
+              >
                 <input type="checkbox" checked onChange={() => toggleCol(key)} />
                 <span className="colmenu-lbl">{col.label}</span>
                 <button
                   className="colmove"
                   aria-label="Move up"
                   disabled={i === 0}
-                  onClick={() => moveCol(key, "up")}
+                  onClick={() => {
+                    snap(); // measure first — then the swap glides
+                    moveCol(key, "up");
+                  }}
                 >
                   ↑
                 </button>
@@ -346,7 +436,10 @@ export function ColumnsMenu<K extends string>({
                   className="colmove"
                   aria-label="Move down"
                   disabled={i === visible.length - 1}
-                  onClick={() => moveCol(key, "down")}
+                  onClick={() => {
+                    snap();
+                    moveCol(key, "down");
+                  }}
                 >
                   ↓
                 </button>
@@ -362,7 +455,10 @@ export function ColumnsMenu<K extends string>({
                   <input
                     type="checkbox"
                     checked={false}
-                    onChange={() => toggleCol(col.key)}
+                    onChange={() => {
+                      toggleCol(col.key);
+                      flashKey(col.key); // show where it re-slotted
+                    }}
                   />
                   <span className="colmenu-lbl">{col.label}</span>
                 </label>

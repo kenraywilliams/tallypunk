@@ -450,9 +450,11 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       patch.terminationDate !== old.terminationDate
     )
       parts.push(
-        patch.terminationDate
-          ? `vesting terminated from ${patch.terminationDate}`
-          : "termination removed — scheduled vesting resumes",
+        patch.terminationDate && old.terminationDate
+          ? `termination date ${old.terminationDate} → ${patch.terminationDate}`
+          : patch.terminationDate
+            ? `vesting terminated from ${patch.terminationDate}`
+            : "termination removed — scheduled vesting resumes",
       );
     const pauseTouched =
       (patch.pauseStart !== undefined && patch.pauseStart !== old.pauseStart) ||

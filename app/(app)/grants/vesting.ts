@@ -136,10 +136,13 @@ export function cliffDate(v: NormalVesting, grantDate: string): string {
   return addMonths(grantDate, v.cliff.years * 12 + v.cliff.months);
 }
 
-// Cliff date after the pause shift (GRANT-17): a pause starting on/before the
-// cliff delays it by the pause length (the boom tranche shifts identically in
-// applyLifecycle, so marker and step stay glued). Open-ended pause before the
-// cliff → null (no date until resumed). Termination doesn't move the cliff.
+// Cliff date after lifecycle events: a pause starting on/before the cliff
+// delays it by the pause length (the boom tranche shifts identically in
+// applyLifecycle, so marker and step stay glued); open-ended pause before the
+// cliff → null (no date until resumed). A termination ON/BEFORE the effective
+// cliff → null too — the boom never happens (exclusive day rule), so showing
+// a cliff marker would lie. Termination AFTER the cliff leaves it (whatever
+// boomed stays vested).
 export function effectiveCliffDate(
   v: NormalVesting,
   grantDate: string,
@@ -147,11 +150,15 @@ export function effectiveCliffDate(
 ): string | null {
   const base = cliffDate(v, grantDate);
   const ps = lc?.pauseStart || null;
-  if (!ps || base < ps) return base;
   const pe = lc?.pauseEnd || null;
-  if (!pe) return null;
-  if (pe < ps) return base; // invalid pause — engine ignores it too
-  return addDays(base, daysBetween(ps, pe));
+  let c: string | null = base;
+  if (ps && base >= ps) {
+    if (!pe) c = null; // open-ended pause before the cliff
+    else if (pe >= ps) c = addDays(base, daysBetween(ps, pe));
+  }
+  const td = lc?.terminationDate || null;
+  if (c != null && td && c >= td) return null; // cliff cut by the termination
+  return c;
 }
 
 // Continuous "earned" % by `asOf` (ignores the cliff gate): the schedule laid
