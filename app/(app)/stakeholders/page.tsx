@@ -29,8 +29,16 @@ import {
 } from "./view";
 
 export default function StakeholdersPage() {
-  const { stakeholders, companies, grantsForStakeholder, hydrated, flashId } =
-    useSandbox();
+  const {
+    stakeholders,
+    companies,
+    grantsForStakeholder,
+    terminateAllFor,
+    pauseAllFor,
+    notify,
+    hydrated,
+    flashId,
+  } = useSandbox();
   const { visible, sortKey, sortDir, toggleCol, moveCol, reorderCol, cycleSort } =
     useStakeholderView();
   // drag the REAL column headers to reorder (arrows in the menu still work)
@@ -124,6 +132,103 @@ export default function StakeholdersPage() {
   const rows = sortStakeholders(shown, companies, sortKey, sortDir, metric);
   const hidden = ALL_COLS.filter((c) => !visible.includes(c.key));
 
+  // ---- bulk actions v1: terminate / pause (GBL-10) ----
+  const [bulkMode, setBulkMode] = useState(false);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [bulkPanel, setBulkPanel] = useState<
+    null | "term" | "pause" | "summary"
+  >(null);
+  const [bDate, setBDate] = useState(todayISO());
+  const [bPs, setBPs] = useState(todayISO());
+  const [bPe, setBPe] = useState("");
+  const [bSummary, setBSummary] = useState<{ title: string; ids: string[] }>({
+    title: "",
+    ids: [],
+  });
+  // RULE: nothing can stay selected that the filters no longer show —
+  // otherwise invisible people get actioned. Prune whenever filters change.
+  const shownIdsKey = shown
+    .map((s) => s.id)
+    .sort()
+    .join("|");
+  useEffect(() => {
+    setSel((cur) => {
+      const visibleIds = new Set(shown.map((s) => s.id));
+      const next = new Set([...cur].filter((id) => visibleIds.has(id)));
+      return next.size === cur.size ? cur : next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownIdsKey]);
+  const allSelected = rows.length > 0 && rows.every((s) => sel.has(s.id));
+  const toggleSel = (id: string) =>
+    setSel((cur) => {
+      const n = new Set(cur);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const selPeople = rows.filter((s) => sel.has(s.id));
+  const exitBulk = () => {
+    setBulkMode(false);
+    setSel(new Set());
+    setBulkPanel(null);
+  };
+  // after a batch: selection clears, acted rows flash (the usual highlight)
+  const [bFlash, setBFlash] = useState<Set<string>>(new Set());
+  const bFlashTimer = useRef<number | undefined>(undefined);
+  const flashMany = (ids: string[]) => {
+    setBFlash(new Set(ids));
+    if (bFlashTimer.current) window.clearTimeout(bFlashTimer.current);
+    bFlashTimer.current = window.setTimeout(() => setBFlash(new Set()), 4200);
+  };
+
+  const doBulkTerm = () => {
+    let acted = 0;
+    const actedIds: string[] = [];
+    selPeople.forEach((s) => {
+      if (!s.terminationDate) {
+        terminateAllFor(s.id, bDate);
+        acted++;
+        actedIds.push(s.id);
+      }
+    });
+    setSel(new Set());
+    flashMany(actedIds);
+    const skipped = selPeople.length - acted;
+    notify(
+      `Terminated vesting for ${acted} stakeholder${acted === 1 ? "" : "s"}${skipped ? ` — ${skipped} skipped (already terminated; un-terminate from their Grants tab first)` : ""}`,
+    );
+    setBSummary({
+      title: `Terminated vesting from ${bDate}`,
+      ids: selPeople.map((s) => s.id),
+    });
+    setBulkPanel("summary");
+  };
+  const bulkPauseInvalid = !bPs || (!!bPe && bPe < bPs);
+  const doBulkPause = () => {
+    if (bulkPauseInvalid) return;
+    let acted = 0;
+    const actedIds: string[] = [];
+    selPeople.forEach((s) => {
+      if (!s.pauseStart) {
+        pauseAllFor(s.id, bPs, bPe || null);
+        acted++;
+        actedIds.push(s.id);
+      }
+    });
+    setSel(new Set());
+    flashMany(actedIds);
+    const skipped = selPeople.length - acted;
+    notify(
+      `Paused vesting for ${acted} stakeholder${acted === 1 ? "" : "s"}${skipped ? ` — ${skipped} skipped (already paused; manage it from their Grants tab)` : ""}`,
+    );
+    setBSummary({
+      title: `Paused vesting ${bPs} → ${bPe || "open-ended"}`,
+      ids: selPeople.map((s) => s.id),
+    });
+    setBulkPanel("summary");
+  };
+
   const cell = (s: Stakeholder, key: ColKey): ReactNode => {
     switch (key) {
       case "id":
@@ -191,6 +296,12 @@ export default function StakeholdersPage() {
         </div>
         {hydrated && stakeholders.length > 0 && (
           <div className="right">
+            <button
+              className={"btn btn-sm " + (bulkMode ? "btn-pri" : "btn-ghost")}
+              onClick={() => (bulkMode ? exitBulk() : setBulkMode(true))}
+            >
+              {bulkMode ? "Done" : "Bulk actions"}
+            </button>
             <div className="colwrap" ref={colsRef}>
               <button
                 className="btn btn-ghost btn-sm"
@@ -317,10 +428,293 @@ export default function StakeholdersPage() {
               </button>
             </div>
           )}
+
+          {bulkMode && bulkPanel === null && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                margin: "0 0 8px",
+                fontSize: 13.5,
+                minHeight: 32, // same height empty or full — no layout jump
+              }}
+            >
+              {sel.size === 0 ? (
+                <span style={{ color: "var(--muted)" }}>
+                  Select the stakeholders to act on — tick rows or the header
+                  box (filtered rows only)
+                </span>
+              ) : (
+                <>
+                  <strong>{sel.size} selected</strong>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setBDate(todayISO());
+                      setBulkPanel("term");
+                    }}
+                  >
+                    Terminate…
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setBPs(todayISO());
+                      setBPe("");
+                      setBulkPanel("pause");
+                    }}
+                  >
+                    Pause…
+                  </button>
+                  <button className="linkbtn" onClick={() => setSel(new Set())}>
+                    Clear selection
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {bulkPanel === "term" && (
+            <div
+              style={{
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                margin: "0 0 10px",
+                background: "var(--bg)",
+              }}
+            >
+              <label className="lab">
+                Terminate ALL grants of {sel.size} stakeholder
+                {sel.size === 1 ? "" : "s"} from
+              </label>
+              <input
+                className="inp"
+                type="date"
+                style={{ maxWidth: 220 }}
+                value={bDate}
+                onChange={(e) => setBDate(e.target.value)}
+              />
+              <div style={{ marginTop: 8, maxHeight: 220, overflowY: "auto" }}>
+                {selPeople.map((s) => {
+                  const gs = grantsForStakeholder(s.id);
+                  const affected = gs.filter((g) => !g.terminationDate).length;
+                  return (
+                    <div
+                      key={s.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        padding: "5px 0",
+                        borderBottom: "1px solid var(--line)",
+                        fontSize: 13,
+                      }}
+                    >
+                      <span>
+                        <strong>
+                          {`${s.firstName} ${s.lastName}`.trim() || "—"}
+                        </strong>
+                      </span>
+                      <span style={{ color: "var(--muted)" }}>
+                        {s.terminationDate
+                          ? `skipped — already terminated ${s.terminationDate}`
+                          : `${affected} of ${gs.length} grant${gs.length === 1 ? "" : "s"} will terminate (own events win)`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="modal-actions">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setBulkPanel(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-pri"
+                  disabled={!bDate}
+                  onClick={doBulkTerm}
+                >
+                  Terminate all listed
+                </button>
+              </div>
+            </div>
+          )}
+
+          {bulkPanel === "pause" && (
+            <div
+              style={{
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                margin: "0 0 10px",
+                background: "var(--bg)",
+              }}
+            >
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <label className="lab">Pause from</label>
+                  <input
+                    className="inp"
+                    type="date"
+                    value={bPs}
+                    onChange={(e) => setBPs(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="lab">Until (optional)</label>
+                  <input
+                    className="inp"
+                    type="date"
+                    value={bPe}
+                    onChange={(e) => setBPe(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div style={{ marginTop: 8, maxHeight: 220, overflowY: "auto" }}>
+                {selPeople.map((s) => {
+                  const gs = grantsForStakeholder(s.id);
+                  const affected = gs.filter(
+                    (g) => !g.pauseStart && !g.terminationDate,
+                  ).length;
+                  return (
+                    <div
+                      key={s.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        padding: "5px 0",
+                        borderBottom: "1px solid var(--line)",
+                        fontSize: 13,
+                      }}
+                    >
+                      <span>
+                        <strong>
+                          {`${s.firstName} ${s.lastName}`.trim() || "—"}
+                        </strong>
+                      </span>
+                      <span style={{ color: "var(--muted)" }}>
+                        {s.pauseStart
+                          ? `skipped — already paused ${s.pauseStart} → ${s.pauseEnd ?? "open-ended"}`
+                          : `${affected} of ${gs.length} grant${gs.length === 1 ? "" : "s"} will pause (own events + terminated skip)`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <p style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
+                Units stay reserved in their pools.
+                {bPe && bPe < bPs && (
+                  <strong style={{ color: "#b23b3b" }}>
+                    {" "}
+                    End date is before the start.
+                  </strong>
+                )}
+              </p>
+              <div className="modal-actions">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setBulkPanel(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-pri"
+                  disabled={bulkPauseInvalid}
+                  onClick={doBulkPause}
+                >
+                  Pause all listed
+                </button>
+              </div>
+            </div>
+          )}
+
+          {bulkPanel === "summary" && (
+            <div
+              style={{
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                margin: "0 0 10px",
+                background: "var(--bg)",
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 14 }}>
+                Done — {bSummary.title}
+              </div>
+              <div style={{ marginTop: 6, maxHeight: 220, overflowY: "auto" }}>
+                {bSummary.ids.map((sid) => {
+                  const s = stakeholders.find((x) => x.id === sid);
+                  if (!s) return null;
+                  const status = stakeholderStatus(
+                    grantsForStakeholder(s.id),
+                    today,
+                  );
+                  return (
+                    <div
+                      key={sid}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "5px 0",
+                        borderBottom: "1px solid var(--line)",
+                        fontSize: 13,
+                      }}
+                    >
+                      <button
+                        className="linkbtn"
+                        onClick={() => router.push(`/stakeholders/${s.id}`)}
+                      >
+                        {`${s.firstName} ${s.lastName}`.trim() || "—"}
+                      </button>
+                      {status !== null && <StatusChip status={status} />}
+                      <span style={{ color: "var(--muted)" }}>
+                        {s.terminationDate
+                          ? `person-level termination ${s.terminationDate}`
+                          : s.pauseStart
+                            ? `person-level pause ${s.pauseStart} → ${s.pauseEnd ?? "open-ended"}`
+                            : "no person-level event"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-pri" onClick={exitBulk}>
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="stk-tablewrap">
           <table className="ptable">
             <thead>
             <tr>
+              {bulkMode && (
+                <th style={{ width: 34 }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el)
+                        el.indeterminate = sel.size > 0 && !allSelected;
+                    }}
+                    onChange={() =>
+                      setSel(
+                        allSelected
+                          ? new Set()
+                          : new Set(rows.map((s) => s.id)), // filtered rows ONLY
+                      )
+                    }
+                  />
+                </th>
+              )}
               <th className="tcol-act" />
               {visible.map((key) => {
                 const col = ALL_COLS.find((c) => c.key === key);
@@ -368,9 +762,24 @@ export default function StakeholdersPage() {
             {rows.map((s) => (
               <tr
                 key={s.id}
-                className={s.id === flashId ? "flash" : undefined}
-                onClick={() => router.push(`/stakeholders/${s.id}`)}
+                className={
+                  s.id === flashId || bFlash.has(s.id) ? "flash" : undefined
+                }
+                onClick={() =>
+                  bulkMode
+                    ? toggleSel(s.id)
+                    : router.push(`/stakeholders/${s.id}`)
+                }
               >
+                {bulkMode && (
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={sel.has(s.id)}
+                      onChange={() => toggleSel(s.id)}
+                    />
+                  </td>
+                )}
                 <td className="tcol-act">
                   <button
                     className="rowbtn"
@@ -399,7 +808,7 @@ export default function StakeholdersPage() {
             {rows.length === 0 && (
               <tr>
                 <td
-                  colSpan={visible.length + 1}
+                  colSpan={visible.length + (bulkMode ? 2 : 1)}
                   style={{
                     textAlign: "center",
                     color: "var(--muted)",

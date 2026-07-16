@@ -562,9 +562,9 @@ export default function GrantDialog({
             marginBottom: 8,
           }}
         >
-          Vesting terminated from {grant.terminationDate} — vested before that
-          date stays vested; the rest is forfeited
-          {grantPool ? ` (returned to ${grantPool.name})` : ""}.
+          {lifetimeFrac >= 1 - 1e-6
+            ? `Vesting terminated from ${grant.terminationDate} — the grant was already fully vested, so nothing was forfeited.`
+            : `Vesting terminated from ${grant.terminationDate} — vested before that date stays vested; the rest is forfeited${grantPool ? ` (returned to ${grantPool.name})` : ""}.`}
         </div>
       )}
       {grant.pauseStart && (
