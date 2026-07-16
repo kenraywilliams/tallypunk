@@ -30,6 +30,8 @@ type GrantCol =
   | "quantity"
   | "date"
   | "vested"
+  | "vestedNum"
+  | "vestedPct"
   | "fully"
   | "status";
 const COLS: ColDef<GrantCol>[] = [
@@ -40,7 +42,9 @@ const COLS: ColDef<GrantCol>[] = [
   { key: "pool", label: "Pool" },
   { key: "quantity", label: "Quantity" },
   { key: "date", label: "Grant date" },
-  { key: "vested", label: "Vested" },
+  { key: "vestedPct", label: "Vested %" }, // the default vested view
+  { key: "vestedNum", label: "Vested #" }, // units only — optional
+  { key: "vested", label: "Vested" }, // combined % · # — optional
   { key: "fully", label: "Fully vested" },
   { key: "status", label: "Status" },
 ];
@@ -53,9 +57,9 @@ const DEFAULT: GrantCol[] = [
   "quantity",
   "status",
   "date",
-  "vested",
+  "vestedPct",
 ];
-// saved views predate first/last + status placement → adjust once on load
+// saved views predate first/last, status placement + the vested split → adjust
 const migrateCols = (v: GrantCol[]): GrantCol[] => {
   const out = [...v];
   const si = out.indexOf("stakeholder");
@@ -64,6 +68,10 @@ const migrateCols = (v: GrantCol[]): GrantCol[] => {
     const qi = out.indexOf("quantity");
     out.splice(qi >= 0 ? qi + 1 : out.length, 0, "status");
   }
+  // the combined Vested column moved off the defaults — saved views that had
+  // it swap to Vested % (re-add Vested / Vested # via Columns if wanted)
+  const vi = out.indexOf("vested");
+  if (vi >= 0 && !out.includes("vestedPct")) out.splice(vi, 1, "vestedPct");
   return out;
 };
 
@@ -128,7 +136,10 @@ export default function GrantsPage() {
       case "date":
         return g.grantDate;
       case "vested":
+      case "vestedPct":
         return vestedFraction(g.vesting, g.grantDate, today, g);
+      case "vestedNum":
+        return vestedUnits(g.quantity, g.vesting, g.grantDate, today, g);
       case "fully":
         return fullyVestedDate(g.vesting, g.grantDate, g) ?? "";
       case "status": {
@@ -175,6 +186,16 @@ export default function GrantsPage() {
         const u = vestedUnits(g.quantity, g.vesting, g.grantDate, today, g);
         return `${pct}% · ${u.toLocaleString()}`;
       }
+      case "vestedPct":
+        return `${Math.round(vestedFraction(g.vesting, g.grantDate, today, g) * 100)}%`;
+      case "vestedNum":
+        return vestedUnits(
+          g.quantity,
+          g.vesting,
+          g.grantDate,
+          today,
+          g,
+        ).toLocaleString();
       case "fully":
         return g.terminationDate ? (
           <span className="muted-cell">—</span>

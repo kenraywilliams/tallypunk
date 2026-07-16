@@ -103,7 +103,13 @@ export default function PoolsPage() {
     }
   };
 
-  const rows = sortRows(pools, sortKey, sortDir, value);
+  // The General Pool is an inherent structure, not a managed pool — no row
+  // in the list (nothing to edit/size/delete). Its holdings + audit stay
+  // reachable via the one-liner under the table. Grants-list filters still
+  // list it as a pool value, so filter-then-bulk flows are unaffected.
+  const managed = pools.filter((p) => !p.isGeneral);
+  const general = pools.find((p) => p.isGeneral) ?? null;
+  const rows = sortRows(managed, sortKey, sortDir, value);
 
   return (
     <div className="listpage">
@@ -112,7 +118,7 @@ export default function PoolsPage() {
           <h1 className="page-title">Pools</h1>
           <p className="page-sub">Option pools to grant from</p>
         </div>
-        {hydrated && pools.length > 0 && (
+        {hydrated && managed.length > 0 && (
           <div className="right">
             <ColumnsMenu
               visible={visible}
@@ -127,7 +133,7 @@ export default function PoolsPage() {
         )}
       </div>
 
-      {!hydrated ? null : pools.length === 0 ? (
+      {!hydrated ? null : managed.length === 0 ? (
         <div className="empty">
           <button
             className="plus"
@@ -200,6 +206,25 @@ export default function PoolsPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {hydrated && general && (
+        <p
+          style={{
+            fontSize: 12.5,
+            color: "var(--muted)",
+            margin: "10px 2px 0",
+          }}
+        >
+          The <strong>General Pool</strong> (built-in catch-all, ∞) holds{" "}
+          {grantedFor(general.id).toLocaleString()} granted units —{" "}
+          <button
+            className="linkbtn"
+            onClick={() => setDialog({ pool: general })}
+          >
+            open
+          </button>
+        </p>
       )}
 
       {dialog && (
